@@ -1,0 +1,18 @@
+# secrets / env
+.env
+.env.*
+!.env.example
+application-local.yml
+application-secrets.yml
+# backend
+backend/target/
+*.log
+# frontend
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+# IDE / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store

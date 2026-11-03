@@ -1,0 +1,70 @@
+spring:
+  application:
+    name: ludo-arena
+  data:
+    mongodb:
+      uri: ${MONGODB_URI:mongodb://localhost:27017/ludo_arena}
+      auto-index-creation: true
+  jackson:
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true
+
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
+app:
+  frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  trust-proxy: ${TRUST_PROXY:false}
+  jwt:
+    secret: ${JWT_SECRET:}
+    access-token-minutes: 15
+    refresh-token-days: 14
+  bootstrap-admin:
+    email: ${ADMIN_BOOTSTRAP_EMAIL:vikasgayri@gmail.com}
+    password: ${ADMIN_BOOTSTRAP_PASSWORD:vikas12345}
+  mail:
+    enabled: ${MAIL_ENABLED:false}
+    from: ${MAIL_FROM:no-reply@ludoarena.example}
+    # Only for local development: logs the reset link instead of mailing it.
+    log-links: ${MAIL_LOG_LINKS:false}
+  rate-limit:
+    enabled: true
+    login-per-minute: 10
+    register-per-minute: 5
+    forgot-password-per-minute: 5
+    reset-password-per-minute: 5
+    refresh-per-minute: 30
+  payments:
+    # DISABLED BY DEFAULT. Do not enable until the payment provider has approved the
+    # non-redeemable virtual-currency model and legal review is complete.
+    enabled: ${PAYMENTS_ENABLED:false}
+    provider: razorpay
+    key-id: ${PAYMENT_KEY_ID:}
+    key-secret: ${PAYMENT_KEY_SECRET:}
+    webhook-secret: ${PAYMENT_WEBHOOK_SECRET:}
+    currency: INR
+    api-base-url: https://api.razorpay.com/v1
+
+logging:
+  level:
+    root: INFO
+    com.ludoarena: INFO

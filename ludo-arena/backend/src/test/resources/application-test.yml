@@ -1,0 +1,11 @@
+app:
+  frontend-url: http://localhost:5173
+  jwt:
+    secret: test-secret-test-secret-test-secret-0123456789
+  rate-limit:
+    enabled: false
+  mail:
+    enabled: false
+    log-links: true
+  payments:
+    enabled: false

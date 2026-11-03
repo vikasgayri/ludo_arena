@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body { @apply bg-navy-900 text-slate-100 antialiased; background-image: radial-gradient(1200px 600px at 80% -10%, rgba(124,92,255,.12), transparent), radial-gradient(900px 500px at -10% 110%, rgba(59,130,246,.10), transparent); }
+  /* Grid/flex children must be allowed to shrink, otherwise wide tables force horizontal page scroll on phones. */
+  .grid > * { min-width: 0; }
+  *:focus-visible { @apply outline-none ring-2 ring-brand-400 ring-offset-2 ring-offset-navy-900; }
+}
+
+@layer components {
+  .card { @apply rounded-2xl border border-white/5 bg-navy-800/80 p-5 shadow-lg backdrop-blur; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-primary { @apply btn bg-gradient-to-r from-brand-500 to-accent text-white shadow-glow hover:brightness-110; }
+  .btn-secondary { @apply btn border border-white/10 bg-navy-700 text-slate-100 hover:bg-navy-600; }
+  .btn-danger { @apply btn bg-red-600 text-white hover:bg-red-500; }
+  .btn-ghost { @apply btn text-slate-300 hover:bg-white/5; }
+  .input { @apply w-full rounded-xl border border-white/10 bg-navy-900 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-brand-400; }
+  .label { @apply mb-1 block text-xs font-medium uppercase tracking-wide text-slate-400; }
+  .field-error { @apply mt-1 text-xs text-red-400; }
+  .badge { @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium; }
+  .th { @apply px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-400; }
+  .td { @apply px-3 py-2 text-sm; }
+}
+
+.skeleton { position: relative; overflow: hidden; @apply rounded-lg bg-navy-700; }
+.skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.07), transparent); animation: shimmer 1.4s infinite; }
+
+@keyframes diceRoll { 0% { transform: rotate(0) scale(1); } 25% { transform: rotate(90deg) scale(1.15); } 50% { transform: rotate(200deg) scale(.95); } 75% { transform: rotate(300deg) scale(1.1); } 100% { transform: rotate(360deg) scale(1); } }
+.dice-rolling { animation: diceRoll .6s ease-in-out infinite; }
+@keyframes tokenPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+.token-movable { animation: tokenPulse .9s ease-in-out infinite; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .dice-rolling, .token-movable { animation: none; } .skeleton::after { animation: none; } }

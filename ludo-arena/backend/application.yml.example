@@ -1,0 +1,18 @@
+# Copy to src/main/resources/application-local.yml (git-ignored) and run with --spring.profiles.active=local
+# Prefer environment variables in production. Never commit real credentials.
+spring:
+  data:
+    mongodb:
+      uri: mongodb://localhost:27017/ludo_arena   # or your Atlas SRV string via ${MONGODB_URI}
+app:
+  frontend-url: http://localhost:5173
+  jwt:
+    secret: "replace-with-at-least-32-random-bytes-base64"
+  bootstrap-admin:
+    email: admin@example.com
+    password: "ChangeMe!12345"      # only used if no SUPER_ADMIN exists yet
+  mail:
+    enabled: false
+    log-links: true                 # dev only: prints reset links to the log
+  payments:
+    enabled: false
