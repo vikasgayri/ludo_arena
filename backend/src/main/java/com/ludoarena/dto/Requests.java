@@ -139,6 +139,9 @@ public final class Requests {
     public record MoveToken(@NotBlank String matchId, @Min(0) @Max(3) int tokenIndex, @NotBlank @Size(max = 64) String actionId) {
     }
 
+    public record SendChat(@NotBlank String matchId, @NotBlank @Size(max = 400) String text) {
+    }
+
     public record RequestState(@NotBlank String matchId, String reconnectToken) {
     }
 }

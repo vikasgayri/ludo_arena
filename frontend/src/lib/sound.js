@@ -54,6 +54,7 @@ const SOUNDS = {
   capture: () => tone(440, { duration: 0.28, type: 'sawtooth', volume: 0.06, slideTo: 110 }),
   home: () => { tone(660, { duration: 0.12 }); tone(880, { duration: 0.16, delay: 0.1 }); },
   turn: () => tone(760, { duration: 0.09, type: 'sine', volume: 0.06 }),
+  chat: () => { tone(880, { duration: 0.06, volume: 0.05 }); tone(1175, { duration: 0.08, volume: 0.05, delay: 0.07 }); },
   win: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, { duration: 0.22, delay: i * 0.13, volume: 0.09 })),
   lose: () => [392, 330, 262].forEach((f, i) => tone(f, { duration: 0.25, delay: i * 0.15, volume: 0.07 })),
 };

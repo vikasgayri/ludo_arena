@@ -30,7 +30,7 @@ import org.springframework.stereotype.Component;
 @Component
 public class StompAuthInterceptor implements ChannelInterceptor {
     private static final Pattern ROOM_TOPIC = Pattern.compile("^/topic/room/([A-Za-z0-9]+)$");
-    private static final Pattern MATCH_TOPIC = Pattern.compile("^/topic/match/([A-Za-z0-9]+)$");
+    private static final Pattern MATCH_TOPIC = Pattern.compile("^/topic/match/([A-Za-z0-9]+)(/chat)?$");
 
     private final JwtService jwt;
     private final UserRepository users;

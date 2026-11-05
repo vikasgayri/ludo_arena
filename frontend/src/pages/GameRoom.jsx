@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bot, Clock, Flag, Trophy, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react';
+import { Bot, Clock, Flag, MessageCircle, Trophy, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react';
 import { useGameStore } from '../store/gameStore';
 import { useAuthStore } from '../store/authStore';
 import { useWalletStore } from '../store/walletStore';
@@ -11,6 +11,8 @@ import { useDiceRoll, useGameSounds } from '../lib/gameFx';
 import { isMuted, onMutedChange, setMuted } from '../lib/sound';
 import { COLOR_HEX } from '../lib/format';
 import Confetti from '../components/Confetti';
+import ChatPanel from '../components/ChatPanel';
+import { play } from '../lib/sound';
 import { toast } from '../store/toastStore';
 import LudoBoard from '../components/LudoBoard';
 import Dice from '../components/Dice';
@@ -18,6 +20,8 @@ import PlayerCard from '../components/PlayerCard';
 import Modal, { ConfirmModal } from '../components/Modal';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ui';
+
+const AUTO_MOVE_DELAY_MS = 400;
 
 function useCountdown(deadline, offsetMs, active) {
   const [now, setNow] = useState(Date.now());
@@ -34,7 +38,7 @@ export default function GameRoom() {
   const { matchId } = useParams();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const { watchMatch, unwatchMatch, match, events, lastUpdateEvents, connection, pending, error, rollDice, moveToken, clearError, serverOffsetMs, requestState } = useGameStore();
+  const { watchMatch, unwatchMatch, match, events, lastUpdateEvents, chat, sendChat, connection, pending, error, rollDice, moveToken, clearError, serverOffsetMs, requestState } = useGameStore();
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
@@ -71,11 +75,44 @@ export default function GameRoom() {
   const [muted, setMutedState] = useState(isMuted());
   useEffect(() => onMutedChange(setMutedState), []);
 
+  // chat (online matches only): unread badge for the mobile chat button, a soft sound for incoming messages
+  const chatEnabled = !!match && !match.vsComputer;
+  const [chatOpen, setChatOpen] = useState(false);
+  const othersCount = (chat || []).filter((c) => c.userId !== user?.id).length;
+  const [seenOthers, setSeenOthers] = useState(0);
+  const unread = chatOpen ? 0 : Math.max(0, othersCount - seenOthers);
+  useEffect(() => { if (chatOpen) setSeenOthers(othersCount); }, [chatOpen, othersCount]);
+  const prevChatLen = useRef(0);
+  useEffect(() => {
+    const list = chat || [];
+    const last = list[list.length - 1];
+    if (prevChatLen.current > 0 && list.length > prevChatLen.current && last && last.userId !== user?.id) play('chat');
+    prevChatLen.current = list.length;
+  }, [chat, user?.id]);
+
   const me = match?.players.find((p) => p.userId === user?.id);
   const isMyTurn = !!match && match.status === 'ACTIVE' && match.currentUserId === user?.id;
   const canRoll = isMyTurn && !match.awaitingMove && !pending;
   // highlight choices only after the dice has landed and tokens stopped walking
-  const movable = isMyTurn && match.awaitingMove && !diceRolling && !animating ? match.validMoves : [];
+  const settled = !diceRolling && !animating;
+  const movable = isMyTurn && match.awaitingMove && settled ? match.validMoves : [];
+  // Only one real choice (one legal token, or several legal tokens on the same spot, e.g. all in base)?
+  // Then move it automatically. The server still validates the move like any other.
+  const onlyChoice = useMemo(() => {
+    if (!isMyTurn || !match?.awaitingMove || !me) return null;
+    const moves = match.validMoves || [];
+    if (!moves.length) return null;
+    return new Set(moves.map((i) => me.tokens[i])).size === 1 ? moves[0] : null;
+  }, [isMyTurn, match, me]);
+  const autoMovedSeq = useRef(null);
+  useEffect(() => {
+    if (onlyChoice == null || !settled || pending || autoMovedSeq.current === match.seq) return undefined;
+    const t = setTimeout(() => {
+      autoMovedSeq.current = match.seq;
+      moveToken(onlyChoice);
+    }, AUTO_MOVE_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [onlyChoice, settled, pending, match?.seq, moveToken]);
   const current = match?.players.find((p) => p.userId === match.currentUserId);
   const botTurn = !!match && match.status === 'ACTIVE' && !!current?.bot;
   const secondsLeft = useCountdown(match?.turnDeadline, serverOffsetMs, !!match && match.status === 'ACTIVE');
@@ -140,7 +177,9 @@ export default function GameRoom() {
             {match.status === 'ACTIVE' && !botTurn && secondsLeft != null && (
               <p className={`flex items-center gap-1 text-sm ${secondsLeft <= 5 ? 'text-red-300' : 'text-slate-400'}`}><Clock className="h-4 w-4" aria-hidden /><span data-testid="turn-timer">{secondsLeft}s</span></p>
             )}
-            {isMyTurn && match.awaitingMove && <p className="mt-1 text-sm text-brand-400">Pick a highlighted token to move.</p>}
+            {isMyTurn && match.awaitingMove && (
+              <p className="mt-1 text-sm text-brand-400" data-testid="move-hint">{onlyChoice != null ? 'Only one move — moving automatically…' : 'Pick a highlighted token to move.'}</p>
+            )}
           </div>
           <div className="flex flex-col items-center gap-1">
             <Dice
@@ -154,9 +193,19 @@ export default function GameRoom() {
             />
             <span className="text-xs text-slate-400">{canRoll ? 'Tap to roll' : ''}</span>
           </div>
-          <button type="button" className="btn-ghost self-start p-2" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute sounds' : 'Mute sounds'} data-testid="mute-toggle">
-            {muted ? <VolumeX className="h-5 w-5" aria-hidden /> : <Volume2 className="h-5 w-5" aria-hidden />}
-          </button>
+          <div className="flex flex-col items-center gap-2 self-stretch">
+            <button type="button" className="btn-ghost p-2" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute sounds' : 'Mute sounds'} data-testid="mute-toggle">
+              {muted ? <VolumeX className="h-5 w-5" aria-hidden /> : <Volume2 className="h-5 w-5" aria-hidden />}
+            </button>
+            {chatEnabled && (
+              <button type="button" onClick={() => setChatOpen(true)} data-testid="chat-fab"
+                className="relative flex h-10 w-10 items-center justify-center rounded-full bg-brand-500 text-white shadow-glow lg:hidden"
+                aria-label={unread ? `Open chat, ${unread} unread` : 'Open chat'}>
+                <MessageCircle className="h-5 w-5" aria-hidden />
+                {unread > 0 && <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold" data-testid="chat-unread">{unread}</span>}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -174,6 +223,7 @@ export default function GameRoom() {
               bot={p.bot} botDifficulty={p.botDifficulty} thinking={botTurn && p.userId === match.currentUserId} />
           ))}
         </div>
+        {chatEnabled && <ChatPanel className="hidden lg:flex" messages={chat} myId={user?.id} onSend={sendChat} disabled={connection !== 'connected'} />}
         <div className="card p-4">
           <h3 className="mb-2 text-sm font-bold">Game log</h3>
           <ol className="max-h-64 space-y-1 overflow-y-auto text-sm text-slate-300" aria-live="polite" data-testid="game-log">
@@ -187,6 +237,10 @@ export default function GameRoom() {
       </aside>
 
       {finished && match.winnerId === user?.id && <Confetti />}
+
+      <Modal open={chatOpen} onClose={() => setChatOpen(false)} title="Chat" size="sm">
+        <ChatPanel bare messages={chat} myId={user?.id} onSend={sendChat} disabled={connection !== 'connected'} />
+      </Modal>
 
       <ConfirmModal open={leaveOpen} title="Leave this match?" danger busy={leaving} confirmLabel="Forfeit"
         message={match.vsComputer ? 'Leaving ends this practice match without a result.' : "You will forfeit the match and lose your place. This can't be undone."} onConfirm={leave} onClose={() => setLeaveOpen(false)} />

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { USER } from './helpers';
@@ -11,7 +11,8 @@ vi.mock('../lib/api', async (orig) => ({
   ...(await orig()),
   RoomApi: { leave: vi.fn() },
   WalletApi: { get: vi.fn().mockResolvedValue({ coinBalance: 1, dailyBonusAvailable: false, dailyBonusCoins: 0 }) },
-  UserApi: { me: vi.fn().mockResolvedValue({}) },
+  // never resolves: a finished-match test must not overwrite the logged-in user of the next test
+  UserApi: { me: vi.fn(() => new Promise(() => {})) },
 }));
 
 const players = [
@@ -26,7 +27,7 @@ const match = (extra = {}) => ({
 function setup(m, published = []) {
   const sock = { publish: (dest, body) => { published.push({ dest, body }); return true; }, subscribe: vi.fn(), unsubscribe: vi.fn(), disconnect: vi.fn() };
   __setSocketForTests(sock);
-  useGameStore.setState({ connect: () => {}, watchMatch: (id) => useGameStore.setState({ matchId: id, match: m }), unwatchMatch: () => {}, requestState: () => {}, connection: 'connected', events: [], pending: false, error: null });
+  useGameStore.setState({ connect: () => {}, watchMatch: (id) => useGameStore.setState({ matchId: id, match: m }), unwatchMatch: () => {}, requestState: () => {}, connection: 'connected', events: [], chat: [], pending: false, error: null });
   useAuthStore.setState({ user: USER, status: 'authenticated' });
   return render(
     <MemoryRouter initialEntries={['/game/m1']}>
@@ -107,5 +108,69 @@ describe('GameRoom', () => {
     expect(screen.getByTestId('turn-label')).toHaveTextContent('Match abandoned');
     expect(screen.getByRole('dialog')).toHaveTextContent('Match abandoned');
     expect(screen.getByTestId('practice-note')).toBeInTheDocument();
+  });
+
+  it('moves automatically when there is only one legal token', async () => {
+    const published = [];
+    setup(match({ diceValue: 3, awaitingMove: true, validMoves: [2] }), published);
+    expect(screen.getByTestId('move-hint')).toHaveTextContent(/moving automatically/i);
+    await waitFor(() => expect(published).toHaveLength(1), { timeout: 2000 });
+    expect(published[0].dest).toBe('/app/match.moveToken');
+    expect(published[0].body.tokenIndex).toBe(2);
+  });
+
+  it('moves automatically when all legal tokens stand on the same spot (e.g. leaving base on a six)', async () => {
+    const published = [];
+    const inBase = [{ ...players[0], tokens: [-1, -1, -1, -1] }, players[1]];
+    setup(match({ players: inBase, diceValue: 6, awaitingMove: true, validMoves: [0, 1, 2, 3] }), published);
+    await waitFor(() => expect(published).toHaveLength(1), { timeout: 2000 });
+    expect(published[0].body.tokenIndex).toBe(0);
+  });
+
+  it('waits for the player when there is a real choice', async () => {
+    const published = [];
+    setup(match({ diceValue: 4, awaitingMove: true, validMoves: [1, 2] }), published);
+    expect(screen.getByTestId('move-hint')).toHaveTextContent(/pick a highlighted token/i);
+    await new Promise((r) => setTimeout(r, 700));
+    expect(published).toHaveLength(0);
+  });
+
+  it('draws a soft halo (not a spinning dashed ring) around movable tokens', () => {
+    setup(match({ diceValue: 4, awaitingMove: true, validMoves: [1, 2] }));
+    const token = screen.getByTestId('token-RED-1');
+    expect(token.querySelector('.token-halo')).not.toBeNull();
+    expect(token.querySelector('.token-ring')).toBeNull();
+    expect(token.querySelector('[stroke-dasharray]')).toBeNull();
+  });
+
+  it('online matches have a chat that sends through the socket', async () => {
+    const published = [];
+    setup(match({ currentUserId: 'u2' }), published);
+    act(() => { useGameStore.setState({ chat: [{ id: 'c1', matchId: 'm1', userId: 'u2', name: 'Ravi', color: 'YELLOW', text: 'Good luck!', at: '2026-11-05T10:00:00Z' }] }); });
+    const panel = screen.getAllByTestId('chat-panel')[0];
+    expect(panel).toHaveTextContent('Good luck!');
+    const input = panel.querySelector('input');
+    await userEvent.type(input, 'Thanks{enter}');
+    const chatFrames = published.filter((p) => p.dest === '/app/match.chat');
+    expect(chatFrames).toHaveLength(1);
+    expect(chatFrames[0].body).toEqual({ matchId: 'm1', text: 'Thanks' });
+    expect(input).toHaveValue('');
+  });
+
+  it('there is no chat in a practice match against the computer', () => {
+    const botPlayers = [players[0], { ...players[1], userId: 'BOT:r1:1', name: 'Master Bot', bot: true, botDifficulty: 'HARD' }];
+    setup(match({ players: botPlayers, currentUserId: 'BOT:r1:1', vsComputer: true }));
+    expect(screen.queryByTestId('chat-panel')).toBeNull();
+    expect(screen.queryByTestId('chat-fab')).toBeNull();
+  });
+
+  it('the mobile chat button counts unread messages from others', () => {
+    setup(match({ currentUserId: 'u2' }));
+    act(() => { useGameStore.setState({ chat: [
+      { id: 'c1', userId: 'u2', name: 'Ravi', color: 'YELLOW', text: 'hi', at: '2026-11-05T10:00:00Z' },
+      { id: 'c2', userId: 'u1', name: 'Asha', color: 'RED', text: 'hello', at: '2026-11-05T10:00:01Z' },
+      { id: 'c3', userId: 'u2', name: 'Ravi', color: 'YELLOW', text: 'ready?', at: '2026-11-05T10:00:02Z' },
+    ] }); });
+    expect(screen.getByTestId('chat-unread')).toHaveTextContent('2');
   });
 });

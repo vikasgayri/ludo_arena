@@ -124,8 +124,10 @@ export const Dest = {
   roll: '/app/match.rollDice',
   move: '/app/match.moveToken',
   state: '/app/match.requestState',
+  chatSend: '/app/match.chat',
   room: (id) => `/topic/room/${id}`,
   match: (id) => `/topic/match/${id}`,
+  chat: (id) => `/topic/match/${id}/chat`,
   errors: '/user/queue/errors',
   userState: '/user/queue/state',
 };

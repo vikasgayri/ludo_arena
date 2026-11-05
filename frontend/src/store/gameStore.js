@@ -1,7 +1,16 @@
 import { create } from 'zustand';
 import { GameSocket, Dest, newActionId } from '../lib/ws';
+import { MatchApi } from '../lib/api';
 
 const MAX_EVENTS = 200;
+const MAX_CHAT = 100;
+
+function mergeChat(current, incoming) {
+  const known = new Set(current.map((c) => c.id));
+  const fresh = incoming.filter((c) => c && !known.has(c.id));
+  if (!fresh.length) return current;
+  return [...current, ...fresh].sort((a, b) => String(a.at).localeCompare(String(b.at))).slice(-MAX_CHAT);
+}
 
 function saveToken(matchId, token) {
   try { sessionStorage.setItem(`la_rt_${matchId}`, token); } catch { /* ignore */ }
@@ -29,6 +38,7 @@ export const useGameStore = create((set, get) => ({
   matchId: null,
   match: null, // MatchStateDto
   events: [], // newest last
+  chat: [], // in-match chat messages, oldest first
   lastUpdateEvents: [], // events from the most recent update (for animations)
   room: null, // RoomDto pushed over /topic/room/{id}
   roomEvent: null, // { type, matchId }
@@ -76,18 +86,25 @@ export const useGameStore = create((set, get) => ({
   // ---- match --------------------------------------------------------------
   watchMatch(matchId) {
     get().connect();
-    set({ matchId, match: null, events: [], lastUpdateEvents: [], error: null, pending: false });
+    set({ matchId, match: null, events: [], lastUpdateEvents: [], chat: [], error: null, pending: false });
     socket.subscribe('match', Dest.match(matchId), (update) => {
       if (!update?.state) return;
       get().applyState(update.state, update.events || []);
     });
+    socket.subscribe('chat', Dest.chat(matchId), (msg) => {
+      if (get().matchId === matchId) set({ chat: mergeChat(get().chat, [msg]) });
+    });
+    Promise.resolve(MatchApi.chat?.(matchId)).then((history) => {
+      if (Array.isArray(history) && get().matchId === matchId) set({ chat: mergeChat(get().chat, history) });
+    }).catch(() => { /* history is a convenience; live messages still arrive */ });
     // Ask for a full snapshot (also the reconnection path); the server rotates the reconnect token.
     get().requestState();
   },
 
   unwatchMatch() {
     socket?.unsubscribe('match');
-    set({ matchId: null, match: null, events: [], lastUpdateEvents: [], pending: false });
+    socket?.unsubscribe('chat');
+    set({ matchId: null, match: null, events: [], lastUpdateEvents: [], chat: [], pending: false });
   },
 
   requestState() {
@@ -134,6 +151,15 @@ export const useGameStore = create((set, get) => ({
     armPendingGuard(set, get);
     const ok = socket?.publish(Dest.move, { matchId, tokenIndex, actionId: newActionId() }) ?? false;
     if (!ok) set({ pending: false, error: 'Not connected. Reconnecting…' });
+    return ok;
+  },
+
+  sendChat(text) {
+    const { matchId } = get();
+    const body = String(text || '').trim();
+    if (!matchId || !body) return false;
+    const ok = socket?.publish(Dest.chatSend, { matchId, text: body.slice(0, 200) }) ?? false;
+    if (!ok) set({ error: 'Not connected. Reconnecting…' });
     return ok;
   },
 

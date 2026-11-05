@@ -116,6 +116,18 @@ class StompAuthInterceptorTest {
     }
 
     @Test
+    void matchChatTopicFollowsTheSameParticipantRule() {
+        User u = user("u1", Role.USER);
+        when(matches.isParticipant("m1", "u1")).thenReturn(true);
+        when(matches.isParticipant("m2", "u1")).thenReturn(false);
+        interceptor.preSend(frame(authed(StompCommand.SUBSCRIBE, "/topic/match/m1/chat", u)), channel);
+        assertThrows(MessageDeliveryException.class,
+                () -> interceptor.preSend(frame(authed(StompCommand.SUBSCRIBE, "/topic/match/m2/chat", u)), channel));
+        assertThrows(MessageDeliveryException.class,
+                () -> interceptor.preSend(frame(authed(StompCommand.SUBSCRIBE, "/topic/match/m1/other", u)), channel));
+    }
+
+    @Test
     void roomTopicsRequireMembership() {
         User u = user("u1", Role.USER);
         when(rooms.isMember("r1", "u1")).thenReturn(true);

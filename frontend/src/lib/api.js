@@ -135,6 +135,7 @@ export const MatchApi = {
   list: (params) => get('/matches', params),
   get: (id) => get(`/matches/${id}`),
   events: (id, params) => get(`/matches/${id}/events`, params),
+  chat: (id) => get(`/matches/${id}/chat`),
 };
 
 export const LeaderboardApi = {

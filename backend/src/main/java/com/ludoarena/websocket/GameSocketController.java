@@ -4,11 +4,13 @@ import com.ludoarena.dto.Dtos.RoomDto;
 import com.ludoarena.dto.Dtos.StateSnapshot;
 import com.ludoarena.dto.Requests.MoveToken;
 import com.ludoarena.dto.Requests.RequestState;
+import com.ludoarena.dto.Requests.SendChat;
 import com.ludoarena.dto.Requests.RollDice;
 import com.ludoarena.dto.Requests.RoomReady;
 import com.ludoarena.dto.Requests.RoomRef;
 import com.ludoarena.exception.ApiException;
 import com.ludoarena.game.model.EngineException;
+import com.ludoarena.service.ChatService;
 import com.ludoarena.service.MatchService;
 import com.ludoarena.service.RoomService;
 import jakarta.validation.Valid;
@@ -38,11 +40,13 @@ public class GameSocketController {
     private final RoomService rooms;
     private final MatchService matches;
     private final SimpMessagingTemplate messaging;
+    private final ChatService chat;
 
-    public GameSocketController(RoomService rooms, MatchService matches, SimpMessagingTemplate messaging) {
+    public GameSocketController(RoomService rooms, MatchService matches, SimpMessagingTemplate messaging, ChatService chat) {
         this.rooms = rooms;
         this.matches = matches;
         this.messaging = messaging;
+        this.chat = chat;
     }
 
     @MessageMapping("/room.join")
@@ -75,6 +79,12 @@ public class GameSocketController {
     public void requestState(@Payload @Valid RequestState p, Principal principal) {
         StateSnapshot snap = matches.requestState(p.matchId(), principal.getName(), p.reconnectToken());
         messaging.convertAndSendToUser(principal.getName(), "/queue/state", snap);
+    }
+
+    /** In-match chat; the sender is the session principal, never a field of the payload. */
+    @MessageMapping("/match.chat")
+    public void chat(@Payload @Valid SendChat p, Principal principal) {
+        chat.send(p.matchId(), principal.getName(), p.text());
     }
 
     // ---------------------------------------------------------------- error replies

@@ -199,6 +199,12 @@ public final class Dtos {
         }
     }
 
+    public record ChatMessageDto(String id, String matchId, String userId, String name, String color, String text, Instant at) {
+        public static ChatMessageDto from(com.ludoarena.model.ChatMessage c) {
+            return new ChatMessageDto(c.id, c.matchId, c.userId, c.name, c.color, c.text, c.at);
+        }
+    }
+
     public record EventDto(String eventId, long seq, String type, String userId, Map<String, Object> data, long at) {
         public static EventDto from(GameEvent e) {
             return new EventDto(e.eventId, e.seq, e.type, e.userId, e.data, e.at);

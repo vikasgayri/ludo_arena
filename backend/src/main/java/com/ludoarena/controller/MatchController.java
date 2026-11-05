@@ -19,9 +19,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/matches")
 public class MatchController {
     private final MatchService matches;
+    private final com.ludoarena.service.ChatService chat;
 
-    public MatchController(MatchService matches) {
+    public MatchController(MatchService matches, com.ludoarena.service.ChatService chat) {
         this.matches = matches;
+        this.chat = chat;
     }
 
     /** The caller's own match history. */
@@ -36,6 +38,12 @@ public class MatchController {
     @GetMapping("/{id}")
     public ApiResponse<MatchStateDto> get(@AuthenticationPrincipal AuthUser me, @PathVariable String id) {
         return ApiResponse.ok(matches.stateFor(id, me.id(), me.isAdmin()));
+    }
+
+    /** Last 50 chat messages of the match (participants / admins). */
+    @GetMapping("/{id}/chat")
+    public ApiResponse<java.util.List<com.ludoarena.dto.Dtos.ChatMessageDto>> chat(@AuthenticationPrincipal AuthUser me, @PathVariable String id) {
+        return ApiResponse.ok(chat.history(id, me.id(), me.isAdmin()));
     }
 
     @GetMapping("/{id}/events")

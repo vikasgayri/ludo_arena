@@ -37,3 +37,12 @@ Events (`type`): `MATCH_STARTED`, `DICE_ROLLED`, `TOKEN_MOVED`, `TOKEN_CAPTURED`
 1. Ignore any update whose `state.seq` is lower than the one held; de-duplicate events by `eventId`.
 2. After (re)connecting, send `requestState` with the stored reconnect token and replace local state with the snapshot. The server rotates the token on each request.
 3. Never compute rules locally; enable only the tokens in `validMoves`.
+
+## In-match chat (online matches only)
+
+* Send: `/app/match.chat` with `{ "matchId": "...", "text": "..." }`. The sender is the authenticated session user.
+  Text is trimmed, control characters removed, max 200 characters; max 5 messages per 10 s per user
+  (`CHAT_RATE_LIMITED` on `/user/queue/errors`). Not available in matches against the computer (`CHAT_UNAVAILABLE`).
+* Receive: subscribe `/topic/match/{matchId}/chat` (same rule as the match topic: participants and admins only).
+  Payload: `{ id, matchId, userId, name, color, text, at }`.
+* History: `GET /api/v1/matches/{id}/chat` returns the last 50 messages, oldest first. Messages expire after 30 days.

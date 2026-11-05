@@ -100,4 +100,6 @@ Paste the tail of each output; results are recorded here.
 | 2026-11-05 | Phase 5 backend (bot matches): `mvn clean test` **153** run, 0 fail, 0 err, 16 skipped, BUILD SUCCESS |
 | 2026-11-05 | Phase 5 frontend (mode page, bot UI): Vitest 74/74, build OK |
 | 2026-11-05 | Owner played a bot match locally: works; asked for smoother play + nicer theme + mobile + Vercel/Render readiness |
+| 2026-11-05 | Owner deployed on Vercel + Render; CORS origin fixed via FRONTEND_URL; online 2P join works |
+| 2026-11-05 | Tap focus-ring blob removed, auto-move for a single choice, in-match chat (backend + UI); Vitest 94/94; backend awaiting `mvn clean test` |
 | 2026-11-05 | Smooth token walking, dice shuffle/land, sounds + mute, classic board, mobile layout, vercel.json, origin patterns, Dockerfile; Vitest 86/86; backend change awaiting `mvn clean test` |
