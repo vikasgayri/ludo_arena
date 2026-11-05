@@ -28,6 +28,18 @@ describe('ServerStatus (sleeping backend notice)', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3);
   });
 
+  it('tells a CORS/origin problem apart from a sleeping server', async () => {
+    const fetchImpl = vi.fn((url, opts) => (opts && opts.mode === 'no-cors'
+      ? Promise.resolve({ type: 'opaque', ok: false })
+      : Promise.reject(new TypeError('Failed to fetch'))));
+    render(<ServerStatus fetchImpl={fetchImpl} />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+    expect(screen.queryByTestId('server-blocked')).toBeNull(); // a single opaque answer may just be a waking proxy
+    await act(async () => { await vi.advanceTimersByTimeAsync(13000); });
+    expect(screen.getByTestId('server-blocked')).toHaveTextContent(/does not allow this website address/i);
+    expect(screen.queryByTestId('server-waking')).toBeNull();
+  });
+
   it('API_ORIGIN strips the /api/v1 suffix', () => {
     expect(API_ORIGIN.endsWith('/api/v1')).toBe(false);
   });

@@ -82,7 +82,7 @@ Render and Vercel rebuild automatically. (Do not `git add` `_audit_snapshot.tgz`
 
 | Symptom | Cause / fix |
 |---|---|
-| Login fails with a CORS error in the browser console | `FRONTEND_URL` on Render does not match the exact Vercel origin (scheme + host). |
+| Login fails with a CORS error in the browser console, or the red bar says the server "does not allow this website address" | `FRONTEND_URL` on Render does not include the address in the browser. Use the production alias (`https://ludo-arena-swart.vercel.app`); per-deployment URLs like `ludo-arena-<hash>-techie-1969.vercel.app` change every deploy - allow them with a pattern: `https://ludo-arena-swart.vercel.app,https://ludo-arena-*-techie-1969.vercel.app`. |
 | "Connection lost - reconnecting" never goes away | `VITE_WS_URL` wrong, or Render instance asleep / restarting. |
 | 404 when refreshing a page on Vercel | Root Directory not `frontend` (so `vercel.json` is not used). |
 | Render deploy fails at startup with `JWT_SECRET must be set` | add `JWT_SECRET`. |
