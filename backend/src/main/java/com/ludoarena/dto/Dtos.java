@@ -68,11 +68,12 @@ public final class Dtos {
 
     // ----------------------------------------------------------------- auth/users
 
-    public record StatsDto(int totalMatches, int wins, int losses, long xp, int captures, int level, double winRate) {
+    public record StatsDto(int totalMatches, int wins, int losses, long xp, int captures, int level, double winRate,
+                           int botGames, int botWins) {
         public static StatsDto from(User.Stats s) {
             int level = 1 + (int) Math.floor(Math.sqrt(s.xp / 50.0));
             double rate = s.totalMatches == 0 ? 0 : Math.round(1000.0 * s.wins / s.totalMatches) / 10.0;
-            return new StatsDto(s.totalMatches, s.wins, s.losses, s.xp, s.captures, level, rate);
+            return new StatsDto(s.totalMatches, s.wins, s.losses, s.xp, s.captures, level, rate, s.botGames, s.botWins);
         }
     }
 
@@ -151,7 +152,8 @@ public final class Dtos {
     }
 
     public record RoomDto(String id, String code, String name, String hostId, int maxPlayers, RoomStatus status,
-                          boolean isPrivate, List<RoomPlayerDto> players, String matchId, Instant createdAt) {
+                          boolean isPrivate, List<RoomPlayerDto> players, String matchId, Instant createdAt,
+                          boolean vsComputer, String botDifficulty) {
         public static RoomDto from(Room r, String viewerId) {
             boolean member = viewerId != null && r.hasPlayer(viewerId);
             List<RoomPlayerDto> players = new ArrayList<>();
@@ -159,7 +161,7 @@ public final class Dtos {
                 players.add(new RoomPlayerDto(p.userId, p.name, p.avatar, p.ready, p.userId.equals(r.hostId)));
             }
             return new RoomDto(r.id, (!r.isPrivate || member) ? r.code : null, r.name, r.hostId, r.maxPlayers, r.status,
-                    r.isPrivate, players, r.matchId, r.createdAt);
+                    r.isPrivate, players, r.matchId, r.createdAt, r.vsComputer, r.botDifficulty);
         }
     }
 
@@ -172,25 +174,28 @@ public final class Dtos {
     // ------------------------------------------------------------------ matches
 
     public record PlayerView(String userId, String name, String avatar, String color, int seat, int[] tokens,
-                             boolean connected, boolean forfeited, int finishedTokens, int rank, String boardSkin, String diceSkin) {
+                             boolean connected, boolean forfeited, int finishedTokens, int rank, String boardSkin, String diceSkin,
+                             boolean bot, String botDifficulty) {
     }
 
     public record MatchStateDto(String matchId, String roomId, MatchStatus status, int mode, List<PlayerView> players,
                                 String currentUserId, Integer diceValue, Integer lastDiceValue, String lastDiceUserId,
                                 boolean awaitingMove, List<Integer> validMoves, int consecutiveSixes, String winnerId,
-                                long turnDeadline, long serverTime, long seq) {
+                                long turnDeadline, long serverTime, long seq, boolean vsComputer, String botDifficulty,
+                                Long botActAt) {
         public static MatchStateDto from(Match m, Map<String, User.Cosmetics> cosmetics) {
             GameState g = m.game;
             List<PlayerView> players = new ArrayList<>();
             for (PlayerState p : g.players) {
                 User.Cosmetics c = cosmetics == null ? null : cosmetics.get(p.userId);
                 players.add(new PlayerView(p.userId, p.name, p.avatar, p.color.name(), p.seat, p.tokens.clone(), p.connected,
-                        p.forfeited, p.finishedTokens(), p.rank, c == null ? null : c.boardSkin, c == null ? null : c.diceSkin));
+                        p.forfeited, p.finishedTokens(), p.rank, c == null ? null : c.boardSkin, c == null ? null : c.diceSkin,
+                        p.bot, p.botDifficulty));
             }
             return new MatchStateDto(m.id, m.roomId, m.status, m.mode, players,
                     g.isFinished() ? null : g.current().userId, g.diceValue, g.lastDiceValue, g.lastDiceUserId,
                     g.awaitingMove, List.copyOf(g.validMoves), g.consecutiveSixes, g.winnerUserId,
-                    g.turnDeadlineEpochMs, System.currentTimeMillis(), g.seq);
+                    g.turnDeadlineEpochMs, System.currentTimeMillis(), g.seq, m.vsComputer, m.botDifficulty, g.botActAtEpochMs);
         }
     }
 
@@ -216,14 +221,15 @@ public final class Dtos {
     }
 
     public record MatchSummaryDto(String id, String roomId, int mode, MatchStatus status, String winnerId,
-                                  List<MatchPlayerSummary> players, Instant createdAt, Instant finishedAt, Boolean youWon) {
+                                  List<MatchPlayerSummary> players, Instant createdAt, Instant finishedAt, Boolean youWon,
+                                  boolean vsComputer) {
         public static MatchSummaryDto from(Match m, String viewerId) {
             List<MatchPlayerSummary> ps = new ArrayList<>();
             for (PlayerState p : m.game.players) {
                 ps.add(new MatchPlayerSummary(p.userId, p.name, p.color.name(), p.rank, p.finishedTokens()));
             }
             Boolean won = viewerId == null || m.winnerId == null ? null : m.winnerId.equals(viewerId);
-            return new MatchSummaryDto(m.id, m.roomId, m.mode, m.status, m.winnerId, ps, m.createdAt, m.finishedAt, won);
+            return new MatchSummaryDto(m.id, m.roomId, m.mode, m.status, m.winnerId, ps, m.createdAt, m.finishedAt, won, m.vsComputer);
         }
     }
 

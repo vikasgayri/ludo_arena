@@ -27,6 +27,10 @@ management:
     web:
       exposure:
         include: health
+  health:
+    mail:
+      # Only probe SMTP when mail is actually used; otherwise an unused localhost:587 makes /actuator/health DOWN.
+      enabled: ${MAIL_ENABLED:false}
   endpoint:
     health:
       show-details: never
@@ -39,8 +43,8 @@ app:
     access-token-minutes: 15
     refresh-token-days: 14
   bootstrap-admin:
-    email: ${ADMIN_BOOTSTRAP_EMAIL:vikasgayri@gmail.com}
-    password: ${ADMIN_BOOTSTRAP_PASSWORD:vikas12345}
+    email: ${ADMIN_BOOTSTRAP_EMAIL:}
+    password: ${ADMIN_BOOTSTRAP_PASSWORD:}
   mail:
     enabled: ${MAIL_ENABLED:false}
     from: ${MAIL_FROM:no-reply@ludoarena.example}

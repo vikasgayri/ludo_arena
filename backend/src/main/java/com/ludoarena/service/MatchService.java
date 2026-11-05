@@ -10,6 +10,9 @@ import com.ludoarena.dto.Dtos.RoomUpdate;
 import com.ludoarena.dto.Dtos.StateSnapshot;
 import com.ludoarena.exception.ApiException;
 import com.ludoarena.game.LudoEngineService;
+import com.ludoarena.game.bot.BotBrain;
+import com.ludoarena.game.bot.BotDifficulty;
+import com.ludoarena.game.bot.BotProfiles;
 import com.ludoarena.game.model.EngineException;
 import com.ludoarena.game.model.GameEvent;
 import com.ludoarena.game.model.GameState;
@@ -32,6 +35,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
@@ -59,6 +63,10 @@ import org.springframework.stereotype.Service;
 public class MatchService {
     private static final Logger log = LoggerFactory.getLogger(MatchService.class);
     private static final int ACTION_ID_WINDOW = 100;
+    /** "thinking" pauses so a bot turn is visible to the human: base delay + random jitter (ms) */
+    static final long BOT_ROLL_DELAY_MS = 900;
+    static final long BOT_MOVE_DELAY_MS = 700;
+    private static final long BOT_JITTER_MS = 400;
 
     private final MatchRepository matches;
     private final MatchEventRepository eventRepo;
@@ -70,11 +78,13 @@ public class MatchService {
     private final NotificationService notifications;
     private final LeaderboardService leaderboard;
     private final SimpMessagingTemplate messaging;
+    private final BotBrain botBrain;
     private final ConcurrentHashMap<String, ReentrantLock> locks = new ConcurrentHashMap<>();
 
     public MatchService(MatchRepository matches, MatchEventRepository eventRepo, UserRepository users, MongoTemplate mongo,
                         LudoEngineService engine, PlatformSettingsService settings, WalletService wallets,
-                        NotificationService notifications, LeaderboardService leaderboard, SimpMessagingTemplate messaging) {
+                        NotificationService notifications, LeaderboardService leaderboard, SimpMessagingTemplate messaging,
+                        BotBrain botBrain) {
         this.matches = matches;
         this.eventRepo = eventRepo;
         this.users = users;
@@ -85,6 +95,7 @@ public class MatchService {
         this.notifications = notifications;
         this.leaderboard = leaderboard;
         this.messaging = messaging;
+        this.botBrain = botBrain;
     }
 
     // ------------------------------------------------------------------ lifecycle
@@ -105,6 +116,43 @@ public class MatchService {
         m.status = MatchStatus.ACTIVE;
         m.createdAt = Instant.ofEpochMilli(now);
         m.startedAt = m.createdAt;
+        m = matches.save(m);
+        persistEvents(m.id, List.of(started));
+        return m;
+    }
+
+    /**
+     * "Play with Computer": seat 0 is the human, the other seats are bots. Bots are game seats only: they are NOT added
+     * to {@link Match#playerIds}, so they never get history, stats, wallet entries or leaderboard rows.
+     */
+    public Match startBotMatch(Room room, BotDifficulty difficulty) {
+        long now = System.currentTimeMillis();
+        Room.RoomPlayer human = room.players.get(0);
+        List<SeatInfo> seats = new ArrayList<>();
+        seats.add(new SeatInfo(human.userId, human.name, human.avatar));
+        for (int seat = 1; seat < room.maxPlayers; seat++) {
+            seats.add(new SeatInfo(BotProfiles.botUserId(room.id, seat), BotProfiles.name(difficulty, seat), BotProfiles.avatar(seat)));
+        }
+        GameState game = engine.startGame(seats, settings.gameRules(), now);
+        for (PlayerState p : game.players) {
+            if (BotProfiles.isBotId(p.userId)) {
+                p.bot = true;
+                p.botDifficulty = difficulty.name();
+            }
+        }
+        GameEvent started = engine.startedEvent(game, now);
+
+        Match m = new Match();
+        m.roomId = room.id;
+        m.mode = seats.size();
+        m.playerIds.add(human.userId);
+        m.vsComputer = true;
+        m.botDifficulty = difficulty.name();
+        m.game = game;
+        m.status = MatchStatus.ACTIVE;
+        m.createdAt = Instant.ofEpochMilli(now);
+        m.startedAt = m.createdAt;
+        scheduleBot(m, now);
         m = matches.save(m);
         persistEvents(m.id, List.of(started));
         return m;
@@ -233,14 +281,88 @@ public class MatchService {
         }
     }
 
+    // ------------------------------------------------------------------- bot turns
+
+    /**
+     * Plays due computer turns. One action (roll OR move) per due match per tick, always under the match lock and
+     * always through the normal engine entry points, so bot turns can never overlap with each other or with a human
+     * action. The due time is persisted in the game state, so pending bot turns resume after a restart.
+     */
+    @Scheduled(fixedDelay = 250)
+    public void processBotTurns() {
+        Query q = Query.query(Criteria.where("status").is(MatchStatus.ACTIVE).and("vsComputer").is(true)
+                .and("game.botActAtEpochMs").lte(System.currentTimeMillis()));
+        q.fields().include("id");
+        for (Match d : mongo.find(q, Match.class)) {
+            try {
+                withLock(d.id, () -> {
+                    playBotTurn(load(d.id), System.currentTimeMillis());
+                    return null;
+                });
+            } catch (RuntimeException e) {
+                log.error("Bot turn failed for match {}", d.id, e);
+            }
+        }
+    }
+
+    /** Caller holds the lock. Package-private for tests. */
+    void playBotTurn(Match m, long now) {
+        GameState g = m.game;
+        if (m.status != MatchStatus.ACTIVE || !m.vsComputer || g.botActAtEpochMs == null || g.botActAtEpochMs > now) return;
+        g.botActAtEpochMs = null; // commit() schedules the next bot step afresh
+        PlayerState p = g.current();
+        if (!p.bot || p.forfeited || g.isFinished()) {
+            matches.save(m);
+            return;
+        }
+        List<GameEvent> events = g.awaitingMove
+                ? engine.moveToken(g, p.userId, botBrain.chooseMove(g, p, BotDifficulty.parse(p.botDifficulty)), now)
+                : engine.rollDice(g, p.userId, now);
+        commit(m, events);
+    }
+
+    /** Sets when the bot to move acts next; clears it when a human (or nobody) is to move. */
+    private void scheduleBot(Match m, long now) {
+        if (!m.vsComputer) return;
+        GameState g = m.game;
+        if (g.isFinished() || g.current().forfeited || !g.current().bot) {
+            g.botActAtEpochMs = null;
+            return;
+        }
+        if (g.botActAtEpochMs == null) {
+            long base = g.awaitingMove ? BOT_MOVE_DELAY_MS : BOT_ROLL_DELAY_MS;
+            g.botActAtEpochMs = now + base + ThreadLocalRandom.current().nextLong(BOT_JITTER_MS);
+        }
+    }
+
+    /** A computer match without any human left in it ends without a winner (no rewards, no stats). */
+    private List<GameEvent> abandonIfNoHumanLeft(Match m, List<GameEvent> events, long now) {
+        if (!m.vsComputer) return events;
+        GameState g = m.game;
+        boolean humanLeft = g.players.stream().anyMatch(p -> !p.bot && !p.forfeited);
+        if (humanLeft || m.status != MatchStatus.ACTIVE) return events;
+        g.status = GameState.Status.FINISHED;
+        g.awaitingMove = false;
+        g.diceValue = null;
+        g.validMoves = new ArrayList<>();
+        g.winnerUserId = null;
+        g.botActAtEpochMs = null;
+        List<GameEvent> all = new ArrayList<>(events);
+        all.add(engine.event(g, GameEvent.MATCH_ABANDONED, null, now));
+        return all;
+    }
+
     // ---------------------------------------------------------------------- commit
 
     /** Persists the mutated match + its events, broadcasts the update and runs completion handling. Caller holds the lock. */
     private MatchStateDto commit(Match m, List<GameEvent> events) {
+        long now = System.currentTimeMillis();
+        events = abandonIfNoHumanLeft(m, events, now);
         GameState g = m.game;
         boolean justFinished = g.isFinished() && m.status == MatchStatus.ACTIVE;
+        scheduleBot(m, now);
         if (justFinished) {
-            m.status = MatchStatus.FINISHED;
+            m.status = g.winnerUserId == null ? MatchStatus.ABANDONED : MatchStatus.FINISHED;
             m.winnerId = g.winnerUserId;
             m.finishedAt = Instant.now();
         }
@@ -276,45 +398,105 @@ public class MatchService {
     private void countCaptures(List<GameEvent> events) {
         Map<String, Integer> perUser = new HashMap<>();
         for (GameEvent e : events) {
-            if (GameEvent.TOKEN_CAPTURED.equals(e.type) && e.userId != null) perUser.merge(e.userId, 1, Integer::sum);
+            if (GameEvent.TOKEN_CAPTURED.equals(e.type) && e.userId != null && !BotProfiles.isBotId(e.userId)) {
+                perUser.merge(e.userId, 1, Integer::sum);
+            }
         }
         perUser.forEach((uid, n) -> mongo.updateFirst(Query.query(Criteria.where("id").is(uid)),
                 new Update().inc("stats.captures", n), User.class));
     }
 
-    /** Stats, XP, leaderboard, coin rewards, notifications, room release. Runs exactly once per match. */
-    private void finalizeMatch(Match m) {
+    /**
+     * Stats, XP, leaderboard, coin rewards, notifications, room release. Safe to run repeatedly (crash recovery):
+     *  - coin rewards go through the idempotent ledger (reference MATCH:{match}:{user}), so they are applied exactly once
+     *    and are retried until they succeed;
+     *  - stats / XP / notification are guarded by a per-player marker claimed atomically, so they are applied at most once;
+     *  - the match is flagged {@code finalized} only after every player was processed; until then the recovery sweep retries.
+     * Caller holds the match lock.
+     */
+    void finalizeMatch(Match m) {
+        releaseRoom(m);
+        Match fresh = mongo.findById(m.id, Match.class);
+        java.util.Set<String> done = new java.util.HashSet<>(fresh != null && fresh.finalizedPlayers != null ? fresh.finalizedPlayers : List.of());
+        PlatformSettings s = settings.get();
+        boolean allOk = true;
+        for (PlayerState p : m.game.players) {
+            if (p.bot || done.contains(p.userId)) continue;
+            try {
+                settlePlayer(m, p, s);
+            } catch (RuntimeException e) {
+                allOk = false;
+                log.error("Finalization failed for player {} in match {} (will be retried)", p.userId, m.id, e);
+            }
+        }
+        if (!allOk) return;
         var claim = mongo.updateFirst(Query.query(Criteria.where("id").is(m.id).and("finalized").ne(true)),
                 new Update().set("finalized", true), Match.class);
         if (claim.getModifiedCount() == 0) return;
-
-        PlatformSettings s = settings.get();
-        for (PlayerState p : m.game.players) {
-            boolean won = p.userId.equals(m.winnerId);
-            long xp = (won ? 100 : p.forfeited ? 5 : 25) + 5L * p.finishedTokens();
-            try {
-                mongo.updateFirst(Query.query(Criteria.where("id").is(p.userId)),
-                        new Update().inc("stats.totalMatches", 1).inc(won ? "stats.wins" : "stats.losses", 1).inc("stats.xp", xp),
-                        User.class);
-                leaderboard.record(p.userId, p.name, p.avatar, won, xp);
-                long reward = won ? s.matchWinRewardCoins : (p.forfeited ? 0 : s.matchParticipationRewardCoins);
-                if (reward > 0) {
-                    wallets.credit(p.userId, TxType.MATCH_REWARD, reward, "MATCH:" + m.id + ":" + p.userId,
-                            won ? "Match victory reward" : "Match participation reward");
-                }
-                notifications.notify(p.userId, "MATCH_FINISHED", won ? "You won!" : "Match finished",
-                        (won ? "Victory! +" : "Good game. +") + xp + " XP" + (reward > 0 ? " and " + reward + " coins." : "."));
-            } catch (RuntimeException e) {
-                log.error("Finalization failed for player {} in match {}", p.userId, m.id, e);
-            }
+        Room room = mongo.findById(m.roomId, Room.class);
+        if (room != null) {
+            messaging.convertAndSend("/topic/room/" + m.roomId, new RoomUpdate("ROOM_FINISHED", RoomDto.from(room, null), m.id));
         }
+    }
+
+    private void settlePlayer(Match m, PlayerState p, PlatformSettings s) {
+        boolean won = p.userId.equals(m.winnerId);
+        if (m.vsComputer) {
+            settlePracticePlayer(m, p, won);
+            return;
+        }
+        long reward = won ? s.matchWinRewardCoins : (p.forfeited ? 0 : s.matchParticipationRewardCoins);
+        if (reward > 0) {
+            wallets.credit(p.userId, TxType.MATCH_REWARD, reward, "MATCH:" + m.id + ":" + p.userId,
+                    won ? "Match victory reward" : "Match participation reward");
+        }
+        var claim = mongo.updateFirst(Query.query(Criteria.where("id").is(m.id).and("finalizedPlayers").ne(p.userId)),
+                new Update().addToSet("finalizedPlayers", p.userId), Match.class);
+        if (claim.getModifiedCount() == 0) return; // stats already applied by an earlier attempt
+        long xp = (won ? 100 : p.forfeited ? 5 : 25) + 5L * p.finishedTokens();
+        mongo.updateFirst(Query.query(Criteria.where("id").is(p.userId)),
+                new Update().inc("stats.totalMatches", 1).inc(won ? "stats.wins" : "stats.losses", 1).inc("stats.xp", xp),
+                User.class);
+        leaderboard.record(p.userId, p.name, p.avatar, won, xp);
+        notifications.notify(p.userId, "MATCH_FINISHED", won ? "You won!" : "Match finished",
+                (won ? "Victory! +" : "Good game. +") + xp + " XP" + (reward > 0 ? " and " + reward + " coins." : "."));
+    }
+
+    /** Matches against the computer: no coins, no XP, no leaderboard (prevents farming); separate practice counters. */
+    private void settlePracticePlayer(Match m, PlayerState p, boolean won) {
+        var claim = mongo.updateFirst(Query.query(Criteria.where("id").is(m.id).and("finalizedPlayers").ne(p.userId)),
+                new Update().addToSet("finalizedPlayers", p.userId), Match.class);
+        if (claim.getModifiedCount() == 0 || m.status == MatchStatus.ABANDONED) return;
+        Update stats = new Update().inc("stats.botGames", 1);
+        if (won) stats.inc("stats.botWins", 1);
+        mongo.updateFirst(Query.query(Criteria.where("id").is(p.userId)), stats, User.class);
+        notifications.notify(p.userId, "MATCH_FINISHED", won ? "You beat the computer!" : "Practice match finished",
+                "Practice matches against the computer do not award coins or leaderboard XP.");
+    }
+
+    private void releaseRoom(Match m) {
         mongo.updateFirst(Query.query(Criteria.where("id").is(m.roomId)),
                 new Update().set("status", RoomStatus.FINISHED).set("updatedAt", Instant.now()), Room.class);
         mongo.updateMulti(Query.query(Criteria.where("activeRoomId").is(m.roomId)),
                 new Update().unset("activeRoomId"), User.class);
-        Room room = mongo.findById(m.roomId, Room.class);
-        if (room != null) {
-            messaging.convertAndSend("/topic/room/" + m.roomId, new RoomUpdate("ROOM_FINISHED", RoomDto.from(room, null), m.id));
+    }
+
+    /** Crash recovery: finished matches whose finalization did not complete are retried every minute. */
+    @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
+    public void recoverUnfinalizedMatches() {
+        Query q = Query.query(Criteria.where("status").in(MatchStatus.FINISHED, MatchStatus.ABANDONED).and("finalized").ne(true)
+                .and("finishedAt").lt(Instant.now().minusSeconds(30)));
+        q.fields().include("id");
+        for (Match d : mongo.find(q, Match.class)) {
+            try {
+                withLock(d.id, () -> {
+                    Match m = load(d.id);
+                    if (m.status != MatchStatus.ACTIVE && !m.finalized) finalizeMatch(m);
+                    return null;
+                });
+            } catch (RuntimeException e) {
+                log.error("Recovery of match {} failed", d.id, e);
+            }
         }
     }
 

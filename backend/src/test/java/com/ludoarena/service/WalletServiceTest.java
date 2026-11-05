@@ -153,6 +153,64 @@ class WalletServiceTest {
         verify(mongo, never()).insert(any(WalletTransaction.class));
     }
 
+    private static WalletTransaction failedDebit(String id, String user, long amount, String ref) {
+        WalletTransaction t = new WalletTransaction();
+        t.id = id;
+        t.userId = user;
+        t.amount = amount;
+        t.referenceId = ref;
+        t.status = TxStatus.FAILED;
+        return t;
+    }
+
+    @Test
+    void aDebitThatFailedForLackOfCoinsCanBeRetriedLaterWithTheSameReference() {
+        String ref = "PURCHASE:u1:item";
+        when(txs.findByReferenceId(ref)).thenReturn(Optional.of(failedDebit("tx-failed", "u1", -30, ref)));
+        when(txs.findById("tx-failed")).thenReturn(Optional.of(completed("u1", -30, ref)));
+        Wallet after = new Wallet();
+        after.userId = "u1";
+        after.coinBalance = 70;
+        walletUpdateReturns(after); // the guarded $inc now matches: user has enough coins
+
+        WalletTransaction r = service.debit("u1", TxType.STORE_PURCHASE, 30, ref, "buy", null);
+
+        assertEquals(TxStatus.COMPLETED, r.status);
+        verify(mongo, never()).insert(any(WalletTransaction.class)); // same ledger entry is reused
+        // one update re-opens the entry (FAILED -> PENDING), one completes it
+        verify(mongo, org.mockito.Mockito.times(2)).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(WalletTransaction.class));
+    }
+
+    @Test
+    void aRetriedDebitStillFailsWhenTheUserIsStillTooPoor() {
+        String ref = "PURCHASE:u1:item";
+        when(txs.findByReferenceId(ref)).thenReturn(Optional.of(failedDebit("tx-failed", "u1", -500, ref)));
+        walletUpdateReturns(null);
+        Wallet current = new Wallet();
+        current.userId = "u1";
+        current.coinBalance = 10;
+        when(wallets.findByUserId("u1")).thenReturn(Optional.of(current));
+
+        ApiException e = assertThrows(ApiException.class,
+                () -> service.debit("u1", TxType.STORE_PURCHASE, 500, ref, "buy", null));
+
+        assertEquals("INSUFFICIENT_COINS", e.code());
+    }
+
+    @Test
+    void aFailedCreditIsNeverReopened() {
+        WalletTransaction failedCredit = failedDebit("tx-c", "u1", 50, "REF-C");
+        when(txs.findByReferenceId("REF-C")).thenReturn(Optional.of(failedCredit));
+
+        WalletTransaction r = service.credit("u1", TxType.PROMO_CREDIT, 50, "REF-C", "x");
+
+        assertEquals(TxStatus.FAILED, r.status);
+        // only the wallet-existence upsert touches the wallet; no balance $inc and no re-open of the ledger entry
+        verify(mongo, org.mockito.Mockito.times(1)).findAndModify(any(Query.class), any(UpdateDefinition.class),
+                any(FindAndModifyOptions.class), eq(Wallet.class));
+        verify(mongo, never()).updateFirst(any(Query.class), any(UpdateDefinition.class), eq(WalletTransaction.class));
+    }
+
     @Test
     void zeroAndNegativeAmountsAreRejected() {
         assertThrows(ApiException.class, () -> service.credit("u1", TxType.PROMO_CREDIT, 0, "R", "x"));

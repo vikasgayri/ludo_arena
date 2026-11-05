@@ -25,6 +25,7 @@ export function describeEvent(e, nameOf) {
       const w = nameOf(d.winnerId);
       return w === 'You' ? 'You win the match!' : `${w} wins the match!`;
     }
+    case 'MATCH_ABANDONED': return 'The match was abandoned — no winner';
     default: return e.type;
   }
 }

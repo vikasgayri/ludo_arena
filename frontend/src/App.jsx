@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { AppLayout, GuestOnly, PublicLayout, RequireAdmin, RequireAuth } from './components/Layouts';
 import ToastContainer from './components/Toast';
+import ServerStatus from './components/ServerStatus';
 
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -11,6 +12,7 @@ import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import Dashboard from './pages/Dashboard';
 import Lobby from './pages/Lobby';
+import PlayMode from './pages/PlayMode';
 import CreateRoom from './pages/CreateRoom';
 import JoinRoom from './pages/JoinRoom';
 import RoomLobby from './pages/RoomLobby';
@@ -52,6 +54,7 @@ export default function App() {
 
         <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
           <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/play" element={<PlayMode />} />
           <Route path="/lobby" element={<Lobby />} />
           <Route path="/rooms/create" element={<CreateRoom />} />
           <Route path="/rooms/join" element={<JoinRoom />} />
@@ -83,6 +86,7 @@ export default function App() {
         <Route path="/home" element={<Navigate to="/" replace />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
+      <ServerStatus />
       <ToastContainer />
     </>
   );

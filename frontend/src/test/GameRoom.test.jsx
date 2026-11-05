@@ -90,4 +90,22 @@ describe('GameRoom', () => {
     act(() => useGameStore.setState({ connection: 'reconnecting' }));
     expect(screen.getAllByText(/reconnecting/i).length).toBeGreaterThan(0);
   });
+
+  it('shows a computer opponent as thinking during its turn and hides the turn timer', () => {
+    const botPlayers = [players[0], { ...players[1], userId: 'BOT:r1:1', name: 'Master Bot', bot: true, botDifficulty: 'HARD' }];
+    setup(match({ players: botPlayers, currentUserId: 'BOT:r1:1', vsComputer: true, botDifficulty: 'HARD' }));
+    expect(screen.getByTestId('turn-label')).toHaveTextContent('Master Bot is thinking…');
+    expect(screen.getByTestId('bot-badge')).toHaveTextContent('Computer · Hard');
+    expect(screen.getByTestId('bot-thinking')).toBeInTheDocument();
+    expect(screen.queryByTestId('turn-timer')).toBeNull();
+    expect(screen.queryByRole('button', { name: /roll dice/i })).not.toBeInTheDocument();
+  });
+
+  it('explains an abandoned practice match in the result dialog', () => {
+    const botPlayers = [{ ...players[0], forfeited: true }, { ...players[1], userId: 'BOT:r1:1', name: 'Master Bot', bot: true, botDifficulty: 'HARD' }];
+    setup(match({ players: botPlayers, status: 'ABANDONED', winnerId: null, currentUserId: null, vsComputer: true, botDifficulty: 'HARD' }));
+    expect(screen.getByTestId('turn-label')).toHaveTextContent('Match abandoned');
+    expect(screen.getByRole('dialog')).toHaveTextContent('Match abandoned');
+    expect(screen.getByTestId('practice-note')).toBeInTheDocument();
+  });
 });

@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Clock, Flag, Trophy, Wifi, WifiOff } from 'lucide-react';
+import { Bot, Clock, Flag, Trophy, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react';
 import { useGameStore } from '../store/gameStore';
 import { useAuthStore } from '../store/authStore';
 import { useWalletStore } from '../store/walletStore';
 import { RoomApi, errorMessage } from '../lib/api';
 import { describeEvent } from '../lib/events';
+import { prefersReducedMotion, useAnimatedPlayers } from '../lib/animation';
+import { useDiceRoll, useGameSounds } from '../lib/gameFx';
+import { isMuted, onMutedChange, setMuted } from '../lib/sound';
+import { COLOR_HEX } from '../lib/format';
+import Confetti from '../components/Confetti';
 import { toast } from '../store/toastStore';
 import LudoBoard from '../components/LudoBoard';
 import Dice from '../components/Dice';
@@ -29,7 +34,7 @@ export default function GameRoom() {
   const { matchId } = useParams();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const { watchMatch, unwatchMatch, match, events, connection, pending, error, rollDice, moveToken, clearError, serverOffsetMs, requestState } = useGameStore();
+  const { watchMatch, unwatchMatch, match, events, lastUpdateEvents, connection, pending, error, rollDice, moveToken, clearError, serverOffsetMs, requestState } = useGameStore();
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
@@ -58,11 +63,21 @@ export default function GameRoom() {
     }
   }, [finished]);
 
+  // presentation only: smooth token walking, dice shuffle, sounds (the server state stays authoritative)
+  const animationsOn = user?.preferences?.animations !== false && !prefersReducedMotion();
+  const { players: shownPlayers, animating } = useAnimatedPlayers(match?.players || [], { enabled: animationsOn });
+  const diceRolling = useDiceRoll(lastUpdateEvents);
+  useGameSounds(lastUpdateEvents, user?.id);
+  const [muted, setMutedState] = useState(isMuted());
+  useEffect(() => onMutedChange(setMutedState), []);
+
   const me = match?.players.find((p) => p.userId === user?.id);
   const isMyTurn = !!match && match.status === 'ACTIVE' && match.currentUserId === user?.id;
   const canRoll = isMyTurn && !match.awaitingMove && !pending;
-  const movable = isMyTurn && match.awaitingMove ? match.validMoves : [];
+  // highlight choices only after the dice has landed and tokens stopped walking
+  const movable = isMyTurn && match.awaitingMove && !diceRolling && !animating ? match.validMoves : [];
   const current = match?.players.find((p) => p.userId === match.currentUserId);
+  const botTurn = !!match && match.status === 'ACTIVE' && !!current?.bot;
   const secondsLeft = useCountdown(match?.turnDeadline, serverOffsetMs, !!match && match.status === 'ACTIVE');
   const shownDice = match ? (match.diceValue ?? match.lastDiceValue) : null;
   const diceOwner = match?.players.find((p) => p.userId === (match.diceValue != null ? match.currentUserId : match.lastDiceUserId)) || current;
@@ -88,24 +103,41 @@ export default function GameRoom() {
   }
 
   const winner = match.players.find((p) => p.userId === match.winnerId);
+  const turnLabel = match.status === 'ABANDONED' ? 'Match abandoned'
+    : match.status !== 'ACTIVE' ? (winner ? `${winner.name} won` : 'Finished')
+      : isMyTurn ? 'Your turn' : botTurn ? `${current.name} is thinking…` : `${current?.name ?? '…'}'s turn`;
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex flex-col items-center">
         {connection !== 'connected' && (
           <div role="status" className="mb-3 flex w-full items-center gap-2 rounded-xl bg-yellow-500/10 px-3 py-2 text-sm text-yellow-200"><WifiOff className="h-4 w-4" aria-hidden />Connection lost — reconnecting…</div>
         )}
+        <div className="mb-3 flex w-full flex-wrap justify-center gap-2 lg:hidden" data-testid="mobile-players">
+          {match.players.map((p) => {
+            const isActive = match.status === 'ACTIVE' && p.userId === match.currentUserId;
+            return (
+              <span key={p.userId} className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition ${isActive ? 'bg-white/15 text-white ring-2 ring-white/60' : 'bg-white/5 text-slate-300'} ${p.forfeited ? 'line-through opacity-40' : ''}`}>
+                <span className="h-2.5 w-2.5 rounded-full" style={{ background: COLOR_HEX[p.color] }} aria-hidden />
+                {p.userId === user?.id ? 'You' : p.name}
+                {p.bot && <Bot className="h-3 w-3 text-accent-400" aria-label="computer" />}
+              </span>
+            );
+          })}
+        </div>
         <LudoBoard
-          players={match.players}
+          activeColor={match.status === 'ACTIVE' ? current?.color : null}
+          players={shownPlayers}
           movableTokens={movable}
           movableUserId={isMyTurn ? user?.id : null}
           onTokenSelect={moveToken}
           skin={me?.boardSkin || 'default'}
         />
-        <div className="mt-4 flex w-full max-w-[640px] items-center justify-between gap-4 rounded-2xl bg-navy-800/80 p-4">
+        <div className="sticky bottom-3 z-20 mt-4 flex w-full max-w-[640px] items-center justify-between gap-4 rounded-2xl border border-white/10 bg-navy-800/90 p-4 shadow-xl backdrop-blur lg:static">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-wide text-slate-400">{match.status === 'ACTIVE' ? 'Turn' : 'Match over'}</p>
-            <p className="truncate text-lg font-bold" data-testid="turn-label">{match.status !== 'ACTIVE' ? (winner ? `${winner.name} won` : 'Finished') : isMyTurn ? 'Your turn' : `${current?.name ?? '…'}'s turn`}</p>
-            {match.status === 'ACTIVE' && secondsLeft != null && (
+            <p className="flex items-center gap-1.5 text-base font-bold leading-tight sm:text-lg" data-testid="turn-label">{botTurn && <Bot className="h-5 w-5 shrink-0 text-accent-400" aria-hidden />}{turnLabel}</p>
+            {match.vsComputer && <p className="text-xs text-slate-400">Practice vs computer · {String(match.botDifficulty || '').toLowerCase()}</p>}
+            {match.status === 'ACTIVE' && !botTurn && secondsLeft != null && (
               <p className={`flex items-center gap-1 text-sm ${secondsLeft <= 5 ? 'text-red-300' : 'text-slate-400'}`}><Clock className="h-4 w-4" aria-hidden /><span data-testid="turn-timer">{secondsLeft}s</span></p>
             )}
             {isMyTurn && match.awaitingMove && <p className="mt-1 text-sm text-brand-400">Pick a highlighted token to move.</p>}
@@ -113,7 +145,7 @@ export default function GameRoom() {
           <div className="flex flex-col items-center gap-1">
             <Dice
               value={shownDice}
-              rolling={pending && !match.awaitingMove}
+              rolling={diceRolling || (pending && !match.awaitingMove)}
               skin={diceOwner?.diceSkin || 'default'}
               onClick={canRoll ? rollDice : undefined}
               disabled={!canRoll}
@@ -122,6 +154,9 @@ export default function GameRoom() {
             />
             <span className="text-xs text-slate-400">{canRoll ? 'Tap to roll' : ''}</span>
           </div>
+          <button type="button" className="btn-ghost self-start p-2" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute sounds' : 'Mute sounds'} data-testid="mute-toggle">
+            {muted ? <VolumeX className="h-5 w-5" aria-hidden /> : <Volume2 className="h-5 w-5" aria-hidden />}
+          </button>
         </div>
       </div>
 
@@ -135,7 +170,8 @@ export default function GameRoom() {
         <div className="space-y-2">
           {match.players.map((p) => (
             <PlayerCard key={p.userId} name={p.name} avatar={p.avatar} color={p.color} you={p.userId === user?.id} active={match.status === 'ACTIVE' && p.userId === match.currentUserId}
-              connected={p.connected} forfeited={p.forfeited} finishedTokens={p.finishedTokens} rank={p.rank} />
+              connected={p.connected} forfeited={p.forfeited} finishedTokens={p.finishedTokens} rank={p.rank}
+              bot={p.bot} botDifficulty={p.botDifficulty} thinking={botTurn && p.userId === match.currentUserId} />
           ))}
         </div>
         <div className="card p-4">
@@ -150,13 +186,16 @@ export default function GameRoom() {
         )}
       </aside>
 
-      <ConfirmModal open={leaveOpen} title="Leave this match?" danger busy={leaving} confirmLabel="Forfeit"
-        message="You will forfeit the match and lose your place. This can't be undone." onConfirm={leave} onClose={() => setLeaveOpen(false)} />
+      {finished && match.winnerId === user?.id && <Confetti />}
 
-      <Modal open={resultOpen} onClose={() => setResultOpen(false)} title={match.winnerId === user?.id ? 'You won! 🎉' : 'Match finished'} size="sm"
+      <ConfirmModal open={leaveOpen} title="Leave this match?" danger busy={leaving} confirmLabel="Forfeit"
+        message={match.vsComputer ? 'Leaving ends this practice match without a result.' : "You will forfeit the match and lose your place. This can't be undone."} onConfirm={leave} onClose={() => setLeaveOpen(false)} />
+
+      <Modal open={resultOpen} onClose={() => setResultOpen(false)} title={match.winnerId === user?.id ? 'You won! 🎉' : match.status === 'ABANDONED' ? 'Match abandoned' : 'Match finished'} size="sm"
         footer={<><button className="btn-secondary" onClick={() => navigate('/matches')}>Match history</button><button className="btn-primary" onClick={() => navigate('/dashboard')}>Back to dashboard</button></>}>
         <div className="space-y-3">
           <p className="flex items-center gap-2 text-sm text-slate-300"><Trophy className="h-4 w-4 text-yellow-300" aria-hidden />{winner ? `${winner.name} took the win.` : 'The match ended without a winner.'}</p>
+          {match.vsComputer && <p className="text-xs text-slate-400" data-testid="practice-note">Practice matches against the computer don't award coins or leaderboard XP.</p>}
           <ol className="space-y-1 text-sm">
             {[...match.players].sort((a, b) => (a.rank || 99) - (b.rank || 99)).map((p) => (
               <li key={p.userId} className="flex justify-between"><span>{p.rank ? `#${p.rank}` : '—'} {p.name}{p.userId === user?.id ? ' (you)' : ''}</span><span className="text-slate-400">{p.finishedTokens}/4 home</span></li>

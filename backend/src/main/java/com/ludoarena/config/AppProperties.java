@@ -23,7 +23,17 @@ public record AppProperties(String frontendUrl, boolean trustProxy, Jwt jwt, Boo
                            String currency, String apiBaseUrl) {
     }
 
+    /**
+     * Browser origins allowed for REST (CORS) and the WebSocket handshake, from FRONTEND_URL (comma separated).
+     * Trailing slashes are removed because a browser Origin never has one ("https://x.vercel.app/" would never match).
+     * Entries may be patterns such as "https://*.vercel.app"; the first entry should be the real site, it is also used
+     * as the base URL in password-reset emails.
+     */
     public java.util.List<String> allowedOrigins() {
-        return java.util.Arrays.stream(frontendUrl.split(",")).map(String::trim).filter(s -> !s.isEmpty()).toList();
+        return java.util.Arrays.stream(frontendUrl.split(","))
+                .map(String::trim)
+                .map(s -> s.replaceAll("/+$", ""))
+                .filter(s -> !s.isEmpty())
+                .toList();
     }
 }

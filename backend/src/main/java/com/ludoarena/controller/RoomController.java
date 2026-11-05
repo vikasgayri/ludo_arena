@@ -4,6 +4,7 @@ import com.ludoarena.dto.Dtos.ActiveGameDto;
 import com.ludoarena.dto.Dtos.ApiResponse;
 import com.ludoarena.dto.Dtos.PageResponse;
 import com.ludoarena.dto.Dtos.RoomDto;
+import com.ludoarena.dto.Requests.CreateBotGame;
 import com.ludoarena.dto.Requests.CreateRoom;
 import com.ludoarena.security.AuthUser;
 import com.ludoarena.service.RoomService;
@@ -33,6 +34,13 @@ public class RoomController {
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<RoomDto> create(@AuthenticationPrincipal AuthUser me, @Valid @RequestBody CreateRoom req) {
         return ApiResponse.ok(rooms.create(me.id(), req), "Room created");
+    }
+
+    /** "Play with Computer": body {"players": 2|4, "difficulty": "EASY"|"MEDIUM"|"HARD"}; the match starts immediately. */
+    @PostMapping("/bot")
+    @ResponseStatus(HttpStatus.CREATED)
+    public ApiResponse<ActiveGameDto> createBotGame(@AuthenticationPrincipal AuthUser me, @Valid @RequestBody CreateBotGame req) {
+        return ApiResponse.ok(rooms.createBotGame(me.id(), req), "Match against the computer started");
     }
 
     @GetMapping

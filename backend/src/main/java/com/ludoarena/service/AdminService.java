@@ -171,10 +171,10 @@ public class AdminService {
             throw ApiException.forbidden("INSUFFICIENT_ROLE", "Only a super admin can change another admin");
         }
         AccountStatus before = t.status;
-        t.status = req.status();
-        t.suspensionReason = req.status() == AccountStatus.SUSPENDED ? req.reason() : null;
-        t.updatedAt = Instant.now();
-        t = users.save(t);
+        Update upd = new Update().set("status", req.status()).set("updatedAt", Instant.now());
+        if (req.status() == AccountStatus.SUSPENDED) upd.set("suspensionReason", req.reason()); else upd.unset("suspensionReason");
+        mongo.updateFirst(Query.query(Criteria.where("id").is(t.id)), upd, User.class);
+        t = users.findById(targetId).orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "User not found"));
         if (t.status == AccountStatus.SUSPENDED) {
             auth.revokeAllForUser(t.id);
             matchService.forfeitActiveMatchOf(t.id);
@@ -197,9 +197,9 @@ public class AdminService {
             throw ApiException.forbidden("PROTECTED_ACCOUNT", "This account's role cannot be changed");
         }
         Role before = t.role;
-        t.role = req.role();
-        t.updatedAt = Instant.now();
-        t = users.save(t);
+        mongo.updateFirst(Query.query(Criteria.where("id").is(t.id)),
+                new Update().set("role", req.role()).set("updatedAt", Instant.now()), User.class);
+        t = users.findById(targetId).orElseThrow(() -> ApiException.notFound("USER_NOT_FOUND", "User not found"));
         adminLog.log(admin, "USER_ROLE_CHANGED", "user", t.id, Map.of("from", before.name(), "to", t.role.name()));
         return toAdminUser(t);
     }

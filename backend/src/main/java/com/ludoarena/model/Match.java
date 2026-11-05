@@ -14,6 +14,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 @Document("matches")
 @CompoundIndex(name = "players_createdAt", def = "{'playerIds': 1, 'createdAt': -1}")
 @CompoundIndex(name = "status_deadline", def = "{'status': 1, 'game.turnDeadlineEpochMs': 1}")
+@CompoundIndex(name = "status_botAct", def = "{'status': 1, 'game.botActAtEpochMs': 1}")
 public class Match {
     @Id
     public String id;
@@ -31,6 +32,11 @@ public class Match {
     public Instant finishedAt;
     /** set exactly once (atomically) when stats, rewards and notifications for a finished match were applied */
     public boolean finalized;
+    /** players whose stats / XP / notification were already applied (makes finalization safely re-runnable) */
+    public List<String> finalizedPlayers = new ArrayList<>();
+    /** "Play with Computer": one human against bots. playerIds holds only the human. */
+    public boolean vsComputer;
+    public String botDifficulty;
     @Version
     public Long version;
 }

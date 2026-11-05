@@ -26,6 +26,9 @@ public class Room {
     public boolean isPrivate;
     public List<RoomPlayer> players = new ArrayList<>();
     public String matchId;
+    /** "Play with Computer" room: private, starts immediately, the only member is the human player */
+    public boolean vsComputer;
+    public String botDifficulty;
     public Instant createdAt;
     public Instant updatedAt;
 

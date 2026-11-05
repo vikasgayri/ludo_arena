@@ -55,6 +55,12 @@ public final class Requests {
             Boolean animations) {
     }
 
+    /** "Play with Computer": 2 seats (you + 1 bot) or 4 seats (you + 3 bots). */
+    public record CreateBotGame(
+            @NotNull @Min(2) @Max(4) Integer players,
+            @NotNull com.ludoarena.game.bot.BotDifficulty difficulty) {
+    }
+
     public record CreateRoom(
             @NotBlank @Size(min = 3, max = 40) String name,
             @NotNull @Min(2) @Max(4) Integer maxPlayers,

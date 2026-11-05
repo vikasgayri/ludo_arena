@@ -23,6 +23,8 @@ public class GameState {
     /** monotonically increasing event counter */
     public long seq = 0;
     public GameRules rules = new GameRules();
+    /** when the computer player whose turn it is acts next (persisted, so bot turns survive a restart); null = no bot due */
+    public Long botActAtEpochMs;
 
     public PlayerState current() {
         return players.get(turnIndex);

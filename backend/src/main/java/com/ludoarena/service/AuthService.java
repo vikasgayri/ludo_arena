@@ -208,11 +208,15 @@ public class AuthService {
             throw ApiException.badRequest("INVALID_RESET_TOKEN", "This reset link is invalid or has expired");
         }
         User u = users.findById(t.userId).orElseThrow(() -> ApiException.badRequest("INVALID_RESET_TOKEN", "This reset link is invalid or has expired"));
-        u.passwordHash = encoder.encode(req.newPassword());
-        u.updatedAt = Instant.now();
-        users.save(u);
+        setPasswordHash(u.id, encoder.encode(req.newPassword()));
         revokeAllForUser(u.id);
         notifications.notify(u.id, "SECURITY", "Password changed", "Your password was reset. If this wasn't you, contact support.");
+    }
+
+    /** Targeted update so a concurrent stats / activeRoomId change is never overwritten. */
+    private void setPasswordHash(String userId, String hash) {
+        mongo.updateFirst(Query.query(Criteria.where("id").is(userId)),
+                new Update().set("passwordHash", hash).set("updatedAt", Instant.now()), User.class);
     }
 
     public void changePassword(String userId, ChangePassword req) {
@@ -220,9 +224,7 @@ public class AuthService {
         if (!encoder.matches(req.currentPassword(), u.passwordHash)) {
             throw ApiException.badRequest("WRONG_PASSWORD", "Current password is incorrect");
         }
-        u.passwordHash = encoder.encode(req.newPassword());
-        u.updatedAt = Instant.now();
-        users.save(u);
+        setPasswordHash(u.id, encoder.encode(req.newPassword()));
         revokeAllForUser(userId);
         notifications.notify(userId, "SECURITY", "Password changed", "Your password was changed. You were signed out on other devices.");
     }

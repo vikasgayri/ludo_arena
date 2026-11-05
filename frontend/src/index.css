@@ -32,4 +32,15 @@
 .dice-rolling { animation: diceRoll .6s ease-in-out infinite; }
 @keyframes tokenPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
 .token-movable { animation: tokenPulse .9s ease-in-out infinite; cursor: pointer; }
-@media (prefers-reduced-motion: reduce) { .dice-rolling, .token-movable { animation: none; } .skeleton::after { animation: none; } }
+@keyframes yardGlow { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
+.yard-active { animation: yardGlow 1.2s ease-in-out infinite; }
+@keyframes ringSpin { to { stroke-dashoffset: -1; } }
+.token-ring { stroke-dasharray: .18 .12; animation: ringSpin .9s linear infinite; }
+.board-svg { box-shadow: 0 18px 40px rgba(0,0,0,.45); border-radius: 1rem; }
+@keyframes diceLand { 0% { transform: scale(1.25) rotate(-12deg); } 60% { transform: scale(.94) rotate(4deg); } 100% { transform: scale(1) rotate(0); } }
+.dice-land { animation: diceLand .35s cubic-bezier(.3,.7,.4,1); }
+@keyframes popIn { 0% { transform: scale(.6); opacity: 0; } 70% { transform: scale(1.06); opacity: 1; } 100% { transform: scale(1); } }
+.pop-in { animation: popIn .35s cubic-bezier(.3,.7,.4,1) both; }
+@keyframes confettiFall { 0% { transform: translateY(-10vh) rotate(0); opacity: 1; } 100% { transform: translateY(105vh) rotate(720deg); opacity: .9; } }
+.confetti-piece { position: fixed; top: 0; width: 10px; height: 14px; border-radius: 2px; animation: confettiFall linear forwards; pointer-events: none; z-index: 60; }
+@media (prefers-reduced-motion: reduce) { .dice-rolling, .token-movable, .yard-active, .token-ring, .dice-land, .pop-in { animation: none; } .skeleton::after { animation: none; } .confetti-piece { display: none; } }

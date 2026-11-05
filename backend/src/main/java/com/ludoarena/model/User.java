@@ -37,6 +37,9 @@ public class User {
         public int losses;
         public long xp;
         public int captures;
+        /** practice matches against the computer: counted separately, never on the leaderboard */
+        public int botGames;
+        public int botWins;
     }
 
     /** Equipped cosmetic item SKUs (empty = default). */

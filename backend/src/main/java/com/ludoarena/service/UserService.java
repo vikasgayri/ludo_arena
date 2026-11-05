@@ -17,6 +17,10 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Pattern;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -27,9 +31,11 @@ public class UserService {
     private final InventoryRepository inventory;
     private final StoreItemRepository storeItems;
     private final LeaderboardService leaderboard;
+    private final MongoTemplate mongo;
 
     public UserService(UserRepository users, InventoryRepository inventory, StoreItemRepository storeItems,
-                       LeaderboardService leaderboard) {
+                       LeaderboardService leaderboard, MongoTemplate mongo) {
+        this.mongo = mongo;
         this.users = users;
         this.inventory = inventory;
         this.storeItems = storeItems;
@@ -44,19 +50,21 @@ public class UserService {
         return UserDto.from(require(id));
     }
 
+    /** Targeted $set update: never rewrites stats / activeRoomId, which other threads change concurrently. */
     public UserDto update(String id, UpdateProfile req) {
-        User u = require(id);
-        if (req.name() != null && !req.name().isBlank()) u.name = req.name().trim();
+        require(id);
+        Update upd = new Update().set("updatedAt", Instant.now());
+        if (req.name() != null && !req.name().isBlank()) upd.set("name", req.name().trim());
         if (req.avatar() != null) {
             if (!FREE_AVATAR.matcher(req.avatar()).matches() && !ownsAvatar(id, req.avatar())) {
                 throw ApiException.forbidden("AVATAR_LOCKED", "You do not own that avatar");
             }
-            u.avatar = req.avatar();
+            upd.set("avatar", req.avatar());
         }
-        if (req.sound() != null) u.preferences.sound = req.sound();
-        if (req.animations() != null) u.preferences.animations = req.animations();
-        u.updatedAt = Instant.now();
-        u = users.save(u);
+        if (req.sound() != null) upd.set("preferences.sound", req.sound());
+        if (req.animations() != null) upd.set("preferences.animations", req.animations());
+        mongo.updateFirst(Query.query(Criteria.where("id").is(id)), upd, User.class);
+        User u = require(id);
         leaderboard.syncProfile(u.id, u.name, u.avatar);
         return UserDto.from(u);
     }

@@ -1,11 +1,12 @@
 import { NavLink } from 'react-router-dom';
 import {
-  Award, BarChart3, Bell, Coins, Flag, Gamepad2, History, LayoutDashboard, LogIn, Receipt, ScrollText, Settings, ShoppingBag,
+  Award, BarChart3, Bot, Bell, Coins, Flag, Gamepad2, History, LayoutDashboard, LogIn, Receipt, ScrollText, Settings, ShoppingBag,
   Shield, Swords, Trophy, User, Users, ListChecks, SlidersHorizontal, Store, X,
 } from 'lucide-react';
 
 export const USER_LINKS = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/play', label: 'Play', icon: Bot },
   { to: '/lobby', label: 'Lobby', icon: Gamepad2 },
   { to: '/rooms/create', label: 'Create Room', icon: Swords },
   { to: '/rooms/join', label: 'Join Room', icon: LogIn },

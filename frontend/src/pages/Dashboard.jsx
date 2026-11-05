@@ -1,5 +1,5 @@
 import { Link, useNavigate } from 'react-router-dom';
-import { Flame, Gamepad2, Percent, Swords, Target, Trophy } from 'lucide-react';
+import { Bot, Flame, Gamepad2, Percent, Swords, Target, Trophy } from 'lucide-react';
 import { LeaderboardApi, MatchApi, RoomApi, WalletApi } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 import { useAuthStore } from '../store/authStore';
@@ -49,7 +49,8 @@ export default function Dashboard() {
         subtitle="Ready for your next match?"
         actions={(
           <>
-            <Link to="/rooms/create" className="btn-primary"><Swords className="h-4 w-4" aria-hidden />Create room</Link>
+            <Link to="/play" className="btn-primary"><Bot className="h-4 w-4" aria-hidden />Play now</Link>
+            <Link to="/rooms/create" className="btn-secondary"><Swords className="h-4 w-4" aria-hidden />Create room</Link>
             <Link to="/lobby" className="btn-secondary"><Gamepad2 className="h-4 w-4" aria-hidden />Browse lobby</Link>
           </>
         )}

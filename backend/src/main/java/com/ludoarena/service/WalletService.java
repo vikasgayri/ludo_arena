@@ -150,8 +150,25 @@ public class WalletService {
         if (!tx.userId.equals(userId) || tx.amount != signedAmount) {
             throw ApiException.conflict("REFERENCE_REUSED", "Reference id already used by a different transaction");
         }
+        if (tx.status == TxStatus.FAILED && tx.amount < 0) {
+            // A debit only fails when the balance was too low, i.e. the balance was never touched. The same business
+            // action (e.g. buying the same store item) must be retryable once the user has enough coins.
+            tx = reopenFailedDebit(tx);
+        }
         if (tx.status != TxStatus.PENDING) return tx; // idempotent replay
         return settle(tx);
+    }
+
+    /**
+     * FAILED -> PENDING, guarded on the current status. Safe because settle() is itself guarded by
+     * "reference not in appliedRefs", so the balance can still be changed at most once per reference.
+     */
+    private WalletTransaction reopenFailedDebit(WalletTransaction tx) {
+        mongo.updateFirst(Query.query(Criteria.where("id").is(tx.id).and("status").is(TxStatus.FAILED)),
+                new Update().set("status", TxStatus.PENDING).unset("completedAt"), WalletTransaction.class);
+        tx.status = TxStatus.PENDING;
+        tx.completedAt = null;
+        return tx;
     }
 
     private WalletTransaction settle(WalletTransaction tx) {

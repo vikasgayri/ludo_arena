@@ -3,10 +3,15 @@ import { tokens } from './tokens';
 
 export const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api/v1';
 
-export const api = axios.create({ baseURL: API_BASE, timeout: 20000 });
+// 45 s: a sleeping free-tier backend (e.g. Render) can need ~30-60 s for its first response
+export const api = axios.create({ baseURL: API_BASE, timeout: 45000 });
+/** Backend origin (API base without /api/v1), used for the health ping. */
+export const API_ORIGIN = API_BASE.replace(/\/api\/v\d+\/?$/, '');
+/** True when a production build was made without VITE_API_BASE_URL (it would silently call localhost). */
+export const API_MISCONFIGURED = import.meta.env.PROD && !import.meta.env.VITE_API_BASE_URL;
 
 // A bare client for the refresh call so the interceptors below never recurse.
-const bare = axios.create({ baseURL: API_BASE, timeout: 20000 });
+const bare = axios.create({ baseURL: API_BASE, timeout: 45000 });
 
 const PUBLIC_PATHS = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/forgot-password', '/auth/reset-password'];
 
@@ -117,6 +122,8 @@ export const StoreApi = {
 export const RoomApi = {
   list: (params) => get('/rooms', params),
   create: (b) => post('/rooms', b),
+  /** Play with Computer: { players: 2|4, difficulty: 'EASY'|'MEDIUM'|'HARD' } -> { room, matchId } */
+  createBotGame: (b) => post('/rooms/bot', b),
   get: (id) => get(`/rooms/${id}`),
   active: () => get('/rooms/active'),
   join: (idOrCode) => post(`/rooms/${encodeURIComponent(idOrCode)}/join`),

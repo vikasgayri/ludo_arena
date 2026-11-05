@@ -1,9 +1,9 @@
-import { Crown, Trophy, WifiOff } from 'lucide-react';
+import { Bot, Crown, Trophy, WifiOff } from 'lucide-react';
 import { COLOR_HEX } from '../lib/format';
 import { Avatar } from './ui';
 
 /** Player strip used in the game room and lobby. */
-export default function PlayerCard({ name, avatar, color, active = false, you = false, host = false, ready, connected = true, forfeited = false, finishedTokens, rank, subtitle }) {
+export default function PlayerCard({ name, avatar, color, active = false, you = false, host = false, ready, connected = true, forfeited = false, finishedTokens, rank, subtitle, bot = false, botDifficulty, thinking = false }) {
   return (
     <div
       className={`flex items-center gap-3 rounded-xl border p-3 transition ${active ? 'border-brand-400 bg-brand-500/10 shadow-glow' : 'border-white/5 bg-navy-800/70'} ${forfeited ? 'opacity-50' : ''}`}
@@ -19,9 +19,14 @@ export default function PlayerCard({ name, avatar, color, active = false, you = 
           {name}
           {you && <span className="badge bg-brand-500/20 text-brand-400">You</span>}
           {host && <Crown className="h-3.5 w-3.5 text-yellow-300" aria-label="Host" />}
+          {bot && (
+            <span className="badge bg-accent/15 text-accent-400" data-testid="bot-badge">
+              <Bot className="mr-1 h-3 w-3" aria-hidden />Computer{botDifficulty ? ` · ${botDifficulty.charAt(0)}${botDifficulty.slice(1).toLowerCase()}` : ''}
+            </span>
+          )}
         </p>
         <p className="truncate text-xs text-slate-400">
-          {forfeited ? 'Left the game' : subtitle ?? (finishedTokens != null ? `${finishedTokens}/4 home` : '')}
+          {forfeited ? 'Left the game' : thinking ? <span className="animate-pulse text-accent-400" data-testid="bot-thinking">Thinking…</span> : subtitle ?? (finishedTokens != null ? `${finishedTokens}/4 home` : '')}
         </p>
       </div>
       {ready != null && (

@@ -4,6 +4,7 @@ import com.ludoarena.dto.Dtos.ActiveGameDto;
 import com.ludoarena.dto.Dtos.PageResponse;
 import com.ludoarena.dto.Dtos.RoomDto;
 import com.ludoarena.dto.Dtos.RoomUpdate;
+import com.ludoarena.dto.Requests.CreateBotGame;
 import com.ludoarena.dto.Requests.CreateRoom;
 import com.ludoarena.exception.ApiException;
 import com.ludoarena.model.Enums.RoomStatus;
@@ -100,6 +101,57 @@ public class RoomService {
             throw e;
         }
         return RoomDto.from(r, userId);
+    }
+
+    // --------------------------------------------------------------- vs computer
+
+    /**
+     * "Play with Computer": creates a private room that is IN_PROGRESS immediately and starts a match against
+     * {@code players - 1} bots. The usual one-active-room-per-user rule applies.
+     */
+    public ActiveGameDto createBotGame(String userId, CreateBotGame req) {
+        if (req.players() != 2 && req.players() != 4) {
+            throw ApiException.badRequest("INVALID_MODE", "Play with 1 computer (2 players) or 3 computers (4 players)");
+        }
+        if (settings.get().maintenanceMode) {
+            throw new ApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "MAINTENANCE", "Ludo Arena is under maintenance");
+        }
+        User u = userService.require(userId);
+        Room r = new Room();
+        r.id = new ObjectId().toHexString();
+        claimSlot(userId, r.id);
+        try {
+            r.name = "Vs Computer (" + req.difficulty().name() + ")";
+            r.hostId = userId;
+            r.maxPlayers = req.players();
+            r.isPrivate = true;
+            r.vsComputer = true;
+            r.botDifficulty = req.difficulty().name();
+            r.status = RoomStatus.IN_PROGRESS;
+            r.createdAt = Instant.now();
+            r.updatedAt = r.createdAt;
+            RoomPlayer me = player(u);
+            me.ready = true;
+            r.players.add(me);
+            for (int attempt = 0; ; attempt++) {
+                r.code = newCode();
+                try {
+                    r = mongo.insert(r);
+                    break;
+                } catch (DuplicateKeyException e) {
+                    if (attempt >= 5) throw e;
+                }
+            }
+            Match m = matchService.startBotMatch(r, req.difficulty());
+            mongo.updateFirst(Query.query(Criteria.where("id").is(r.id)), new Update().set("matchId", m.id), Room.class);
+            r.matchId = m.id;
+            return new ActiveGameDto(RoomDto.from(r, userId), m.id);
+        } catch (RuntimeException e) {
+            mongo.updateFirst(Query.query(Criteria.where("id").is(r.id)),
+                    new Update().set("status", RoomStatus.CLOSED).set("updatedAt", Instant.now()), Room.class);
+            releaseSlot(userId, r.id);
+            throw e;
+        }
     }
 
     // ------------------------------------------------------------------------ join

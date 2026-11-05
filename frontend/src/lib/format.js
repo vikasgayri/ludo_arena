@@ -28,7 +28,10 @@ export function timeAgo(iso, now = Date.now()) {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-export const COLOR_HEX = { RED: '#ef4444', GREEN: '#22c55e', YELLOW: '#facc15', BLUE: '#3b82f6' };
+export const COLOR_HEX = { RED: '#e53935', GREEN: '#2e9e4f', YELLOW: '#f7b500', BLUE: '#1e78d7' };
+/** darker / lighter shades used for the 3D tokens and board gradients */
+export const COLOR_DARK = { RED: '#a51d1a', GREEN: '#1b6b34', YELLOW: '#b98500', BLUE: '#0f4f9c' };
+export const COLOR_LIGHT = { RED: '#ff8a80', GREEN: '#8be3a8', YELLOW: '#ffe082', BLUE: '#90c2ff' };
 export const COLOR_SOFT = { RED: '#fecaca', GREEN: '#bbf7d0', YELLOW: '#fef08a', BLUE: '#bfdbfe' };
 export const TX_LABEL = {
   SIGNUP_BONUS: 'Signup bonus', DAILY_BONUS: 'Daily bonus', MATCH_REWARD: 'Match reward', STORE_PURCHASE: 'Store purchase',

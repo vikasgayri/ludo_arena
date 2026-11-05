@@ -18,6 +18,8 @@ public class GameEvent {
     public static final String PLAYER_DISCONNECTED = "PLAYER_DISCONNECTED";
     public static final String PLAYER_RECONNECTED = "PLAYER_RECONNECTED";
     public static final String MATCH_FINISHED = "MATCH_FINISHED";
+    /** a match against the computer ended because no human player is left in it (no winner, no rewards) */
+    public static final String MATCH_ABANDONED = "MATCH_ABANDONED";
 
     public String eventId;
     public long seq;

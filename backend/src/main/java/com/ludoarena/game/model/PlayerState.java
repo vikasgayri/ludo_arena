@@ -16,6 +16,10 @@ public class PlayerState {
     public int rank = 0;
     /** SHA-256 (hex) of the reconnect token that was issued to this seat. Never sent to clients. */
     public String reconnectTokenHash;
+    /** true for a computer-controlled seat ("Play with Computer"); bots never appear in Match.playerIds */
+    public boolean bot = false;
+    /** EASY / MEDIUM / HARD for bot seats, null for humans */
+    public String botDifficulty;
 
     public int finishedTokens() {
         int n = 0;

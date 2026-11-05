@@ -22,6 +22,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
 /** Cosmetic store: items are bought with virtual coins through the wallet ledger. No gameplay advantage is sold. */
@@ -31,16 +35,16 @@ public class StoreService {
     private final InventoryRepository inventory;
     private final WalletService wallets;
     private final UserService userService;
-    private final com.ludoarena.repository.UserRepository users;
+    private final MongoTemplate mongo;
     private final NotificationService notifications;
 
     public StoreService(StoreItemRepository items, InventoryRepository inventory, WalletService wallets,
-                        UserService userService, com.ludoarena.repository.UserRepository users, NotificationService notifications) {
+                        UserService userService, MongoTemplate mongo, NotificationService notifications) {
         this.items = items;
         this.inventory = inventory;
         this.wallets = wallets;
         this.userService = userService;
-        this.users = users;
+        this.mongo = mongo;
         this.notifications = notifications;
     }
 
@@ -117,27 +121,27 @@ public class StoreService {
         if (!inventory.existsByUserIdAndItemId(userId, itemId)) {
             throw ApiException.forbidden("NOT_OWNED", "Buy this item before equipping it");
         }
-        User u = userService.require(userId);
-        switch (item.category) {
-            case BOARD_SKIN -> u.cosmetics.boardSkin = item.assetKey;
-            case DICE_SKIN -> u.cosmetics.diceSkin = item.assetKey;
-            case PROFILE_THEME -> u.cosmetics.profileTheme = item.assetKey;
-            case AVATAR -> u.avatar = item.assetKey;
-        }
-        u.updatedAt = Instant.now();
-        return UserDto.from(users.save(u));
+        userService.require(userId);
+        setCosmetic(userId, item.category, item.assetKey);
+        return UserDto.from(userService.require(userId));
     }
 
     public UserDto unequip(String userId, ItemCategory category) {
-        User u = userService.require(userId);
-        switch (category) {
-            case BOARD_SKIN -> u.cosmetics.boardSkin = null;
-            case DICE_SKIN -> u.cosmetics.diceSkin = null;
-            case PROFILE_THEME -> u.cosmetics.profileTheme = null;
-            case AVATAR -> u.avatar = "avatar-01";
-        }
-        u.updatedAt = Instant.now();
-        return UserDto.from(users.save(u));
+        userService.require(userId);
+        setCosmetic(userId, category, category == ItemCategory.AVATAR ? "avatar-01" : null);
+        return UserDto.from(userService.require(userId));
+    }
+
+    /** Targeted $set: never rewrites stats / activeRoomId, which the match engine updates concurrently. */
+    private void setCosmetic(String userId, ItemCategory category, String value) {
+        String field = switch (category) {
+            case BOARD_SKIN -> "cosmetics.boardSkin";
+            case DICE_SKIN -> "cosmetics.diceSkin";
+            case PROFILE_THEME -> "cosmetics.profileTheme";
+            case AVATAR -> "avatar";
+        };
+        mongo.updateFirst(Query.query(Criteria.where("id").is(userId)),
+                new Update().set(field, value).set("updatedAt", Instant.now()), User.class);
     }
 
     // ------------------------------------------------------------------ admin
