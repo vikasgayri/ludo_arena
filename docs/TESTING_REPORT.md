@@ -102,4 +102,5 @@ Paste the tail of each output; results are recorded here.
 | 2026-11-05 | Owner played a bot match locally: works; asked for smoother play + nicer theme + mobile + Vercel/Render readiness |
 | 2026-11-05 | Owner deployed on Vercel + Render; CORS origin fixed via FRONTEND_URL; online 2P join works |
 | 2026-11-05 | Tap focus-ring blob removed, auto-move for a single choice, in-match chat (backend + UI); Vitest 94/94; backend awaiting `mvn clean test` |
+| 2026-11-05 | Voice chat (WebRTC): Vitest 104/104 (+10 VoiceClient unit tests); **real two-browser test** (Chromium, fake mics, simultaneous join): both peers `connected` in ~0.6 s, audio packets flowing both ways, mute disables the track, leave drops the peer, re-join reconnects. Not yet tested on real phones / mobile data; backend VoiceService (8 tests) awaiting `mvn clean test` |
 | 2026-11-05 | Smooth token walking, dice shuffle/land, sounds + mute, classic board, mobile layout, vercel.json, origin patterns, Dockerfile; Vitest 86/86; backend change awaiting `mvn clean test` |

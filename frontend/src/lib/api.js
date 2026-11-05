@@ -138,6 +138,10 @@ export const MatchApi = {
   chat: (id) => get(`/matches/${id}/chat`),
 };
 
+export const VoiceApi = {
+  iceServers: () => get('/voice/ice-servers'),
+};
+
 export const LeaderboardApi = {
   top: (params) => get('/leaderboard', params),
   me: () => get('/leaderboard/me'),

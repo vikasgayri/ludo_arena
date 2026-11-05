@@ -57,6 +57,16 @@ app:
     forgot-password-per-minute: 5
     reset-password-per-minute: 5
     refresh-per-minute: 30
+  voice:
+    # WebRTC voice chat in online matches (audio is peer-to-peer; the server only relays signalling)
+    enabled: ${VOICE_ENABLED:true}
+    stun-urls: ${VOICE_STUN_URLS:stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302}
+    # Optional TURN relay for mobile data / strict NATs (see docs/DEPLOYMENT.md)
+    turn-urls: ${VOICE_TURN_URLS:}
+    turn-secret: ${VOICE_TURN_SECRET:}
+    turn-username: ${VOICE_TURN_USERNAME:}
+    turn-credential: ${VOICE_TURN_CREDENTIAL:}
+    turn-ttl-seconds: 21600
   payments:
     # DISABLED BY DEFAULT. Do not enable until the payment provider has approved the
     # non-redeemable virtual-currency model and legal review is complete.

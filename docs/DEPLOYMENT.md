@@ -88,3 +88,16 @@ Render and Vercel rebuild automatically. (Do not `git add` `_audit_snapshot.tgz`
 | Render deploy fails at startup with `JWT_SECRET must be set` | add `JWT_SECRET`. |
 | Startup hangs then `Timed out ... servers=[]` | Atlas Network Access does not allow Render, or wrong URI/password. |
 | Local Mac only: `Failed looking up TXT record` | Java DNS issue with `mongodb+srv` on some networks; locally use the non-SRV seed-list URI (see TESTING_REPORT.md). |
+
+## 7. Voice chat (WebRTC) and TURN
+
+Voice works out of the box with public STUN servers on most home/office Wi-Fi. Some mobile data networks and strict
+NATs block direct peer-to-peer audio; those players then see "Connection failed". The fix is a TURN relay:
+
+* **Self-hosted coturn** (e.g. on an own VPS): configure `use-auth-secret` + `static-auth-secret=<secret>` and open
+  3478/udp+tcp (and 5349 for TLS). On Render set `VOICE_TURN_URLS=turn:turn.example.com:3478,turns:turn.example.com:5349`
+  and `VOICE_TURN_SECRET=<secret>`; the backend hands out 6-hour HMAC credentials per user.
+* **Managed TURN service** with fixed credentials: set `VOICE_TURN_URLS`, `VOICE_TURN_USERNAME`, `VOICE_TURN_CREDENTIAL`.
+
+`VOICE_ENABLED=false` turns voice off. The browser needs microphone permission (HTTPS only); `frontend/vercel.json`
+allows the microphone for the site itself (`Permissions-Policy: microphone=(self)`).

@@ -139,6 +139,14 @@ public final class Requests {
     public record MoveToken(@NotBlank String matchId, @Min(0) @Max(3) int tokenIndex, @NotBlank @Size(max = 64) String actionId) {
     }
 
+    /** WebRTC signalling: join | leave | offer | answer | ice, addressed to one other player of the match. */
+    public record VoiceSignal(
+            @NotBlank String matchId,
+            @NotBlank @Size(max = 64) String to,
+            @NotBlank @Pattern(regexp = "^(join|leave|offer|answer|ice)$", message = "Unknown signal type") String type,
+            java.util.Map<String, Object> payload) {
+    }
+
     public record SendChat(@NotBlank String matchId, @NotBlank @Size(max = 400) String text) {
     }
 

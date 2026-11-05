@@ -20,6 +20,9 @@ function loadToken(matchId) {
 }
 
 let socket = null;
+let voiceHandler = null;
+/** The voice client registers here to receive WebRTC signalling from /user/queue/voice. */
+export function setVoiceHandler(fn) { voiceHandler = fn; }
 let pendingTimer = null;
 
 /** If the server never answers (lost frame), release the UI so the player can retry. Retrying is safe: actions are idempotent. */
@@ -52,6 +55,7 @@ export const useGameStore = create((set, get) => ({
     socket.subscribe('errors', Dest.errors, (body) => {
       set({ error: body?.message || 'Action rejected', pending: false });
     });
+    socket.subscribe('voice', Dest.voice, (msg) => { if (voiceHandler) voiceHandler(msg); });
     socket.subscribe('userState', Dest.userState, (snap) => {
       if (!snap?.state) return;
       if (snap.reconnectToken && snap.state.matchId) saveToken(snap.state.matchId, snap.reconnectToken);
@@ -152,6 +156,12 @@ export const useGameStore = create((set, get) => ({
     const ok = socket?.publish(Dest.move, { matchId, tokenIndex, actionId: newActionId() }) ?? false;
     if (!ok) set({ pending: false, error: 'Not connected. Reconnecting…' });
     return ok;
+  },
+
+  sendVoice(to, type, payload) {
+    const { matchId } = get();
+    if (!matchId || !socket) return false;
+    return socket.publish(Dest.voiceSend, { matchId, to, type, payload: payload || {} });
   },
 
   sendChat(text) {

@@ -46,3 +46,13 @@ Events (`type`): `MATCH_STARTED`, `DICE_ROLLED`, `TOKEN_MOVED`, `TOKEN_CAPTURED`
 * Receive: subscribe `/topic/match/{matchId}/chat` (same rule as the match topic: participants and admins only).
   Payload: `{ id, matchId, userId, name, color, text, at }`.
 * History: `GET /api/v1/matches/{id}/chat` returns the last 50 messages, oldest first. Messages expire after 30 days.
+
+## Voice chat (online matches only, WebRTC)
+
+Audio is peer-to-peer between browsers (one RTCPeerConnection per other human player); the server never receives audio.
+* ICE servers: `GET /api/v1/voice/ice-servers` (authenticated) -> `[{ urls, username?, credential? }]` (STUN, plus TURN when configured).
+* Signalling send: `/app/match.voice` with `{ matchId, to, type, payload }`, `type` = `join | leave | offer | answer | ice`.
+  The server checks that sender and `to` are both human players of the running match (not vs computer), limits the
+  payload to 20 000 characters and 120 signals per 10 s per user, then delivers to that one user.
+* Signalling receive: `/user/queue/voice` -> `{ matchId, from, fromName, type, payload }`.
+* Offer rule (no collisions): on `join` from X, the player with the smaller user id sends the offer; the other replies `join`.

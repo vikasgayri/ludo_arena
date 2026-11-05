@@ -5,6 +5,7 @@ import com.ludoarena.dto.Dtos.StateSnapshot;
 import com.ludoarena.dto.Requests.MoveToken;
 import com.ludoarena.dto.Requests.RequestState;
 import com.ludoarena.dto.Requests.SendChat;
+import com.ludoarena.dto.Requests.VoiceSignal;
 import com.ludoarena.dto.Requests.RollDice;
 import com.ludoarena.dto.Requests.RoomReady;
 import com.ludoarena.dto.Requests.RoomRef;
@@ -13,6 +14,7 @@ import com.ludoarena.game.model.EngineException;
 import com.ludoarena.service.ChatService;
 import com.ludoarena.service.MatchService;
 import com.ludoarena.service.RoomService;
+import com.ludoarena.service.VoiceService;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.time.Instant;
@@ -41,12 +43,15 @@ public class GameSocketController {
     private final MatchService matches;
     private final SimpMessagingTemplate messaging;
     private final ChatService chat;
+    private final VoiceService voice;
 
-    public GameSocketController(RoomService rooms, MatchService matches, SimpMessagingTemplate messaging, ChatService chat) {
+    public GameSocketController(RoomService rooms, MatchService matches, SimpMessagingTemplate messaging, ChatService chat,
+                                VoiceService voice) {
         this.rooms = rooms;
         this.matches = matches;
         this.messaging = messaging;
         this.chat = chat;
+        this.voice = voice;
     }
 
     @MessageMapping("/room.join")
@@ -85,6 +90,12 @@ public class GameSocketController {
     @MessageMapping("/match.chat")
     public void chat(@Payload @Valid SendChat p, Principal principal) {
         chat.send(p.matchId(), principal.getName(), p.text());
+    }
+
+    /** WebRTC voice signalling, forwarded to exactly one other player of the match. */
+    @MessageMapping("/match.voice")
+    public void voice(@Payload @Valid VoiceSignal p, Principal principal) {
+        voice.relay(p.matchId(), principal.getName(), p.to(), p.type(), p.payload());
     }
 
     // ---------------------------------------------------------------- error replies

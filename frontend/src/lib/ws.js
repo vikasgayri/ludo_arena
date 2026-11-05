@@ -125,9 +125,11 @@ export const Dest = {
   move: '/app/match.moveToken',
   state: '/app/match.requestState',
   chatSend: '/app/match.chat',
+  voiceSend: '/app/match.voice',
   room: (id) => `/topic/room/${id}`,
   match: (id) => `/topic/match/${id}`,
   chat: (id) => `/topic/match/${id}/chat`,
   errors: '/user/queue/errors',
   userState: '/user/queue/state',
+  voice: '/user/queue/voice',
 };

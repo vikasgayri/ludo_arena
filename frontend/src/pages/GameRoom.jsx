@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bot, Clock, Flag, MessageCircle, Trophy, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react';
+import { Bot, Clock, Flag, Loader2, MessageCircle, Mic, MicOff, Trophy, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react';
 import { useGameStore } from '../store/gameStore';
 import { useAuthStore } from '../store/authStore';
 import { useWalletStore } from '../store/walletStore';
@@ -12,6 +12,8 @@ import { isMuted, onMutedChange, setMuted } from '../lib/sound';
 import { COLOR_HEX } from '../lib/format';
 import Confetti from '../components/Confetti';
 import ChatPanel from '../components/ChatPanel';
+import VoicePanel from '../components/VoicePanel';
+import { useVoice } from '../lib/useVoice';
 import { play } from '../lib/sound';
 import { toast } from '../store/toastStore';
 import LudoBoard from '../components/LudoBoard';
@@ -38,7 +40,7 @@ export default function GameRoom() {
   const { matchId } = useParams();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const { watchMatch, unwatchMatch, match, events, lastUpdateEvents, chat, sendChat, connection, pending, error, rollDice, moveToken, clearError, serverOffsetMs, requestState } = useGameStore();
+  const { watchMatch, unwatchMatch, match, events, lastUpdateEvents, chat, sendChat, sendVoice, connection, pending, error, rollDice, moveToken, clearError, serverOffsetMs, requestState } = useGameStore();
   const [leaveOpen, setLeaveOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
@@ -74,6 +76,11 @@ export default function GameRoom() {
   useGameSounds(lastUpdateEvents, user?.id);
   const [muted, setMutedState] = useState(isMuted());
   useEffect(() => onMutedChange(setMutedState), []);
+
+  // voice chat (online matches only; peer-to-peer WebRTC, the server only relays signalling)
+  const voice = useVoice({ match, userId: user?.id, sendVoice });
+  const speakingIds = new Set(Object.entries(voice.peers || {}).filter(([, p]) => p.speaking).map(([id]) => id));
+  if (voice.localSpeaking && user?.id) speakingIds.add(user.id);
 
   // chat (online matches only): unread badge for the mobile chat button, a soft sound for incoming messages
   const chatEnabled = !!match && !match.vsComputer;
@@ -153,10 +160,11 @@ export default function GameRoom() {
           {match.players.map((p) => {
             const isActive = match.status === 'ACTIVE' && p.userId === match.currentUserId;
             return (
-              <span key={p.userId} className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition ${isActive ? 'bg-white/15 text-white ring-2 ring-white/60' : 'bg-white/5 text-slate-300'} ${p.forfeited ? 'line-through opacity-40' : ''}`}>
+              <span key={p.userId} className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition ${isActive ? 'bg-white/15 text-white ring-2 ring-white/60' : 'bg-white/5 text-slate-300'} ${speakingIds.has(p.userId) ? 'ring-2 ring-emerald-400' : ''} ${p.forfeited ? 'line-through opacity-40' : ''}`}>
                 <span className="h-2.5 w-2.5 rounded-full" style={{ background: COLOR_HEX[p.color] }} aria-hidden />
                 {p.userId === user?.id ? 'You' : p.name}
                 {p.bot && <Bot className="h-3 w-3 text-accent-400" aria-label="computer" />}
+                {speakingIds.has(p.userId) && <Mic className="h-3 w-3 text-emerald-300" aria-label="speaking" />}
               </span>
             );
           })}
@@ -197,6 +205,13 @@ export default function GameRoom() {
             <button type="button" className="btn-ghost p-2" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute sounds' : 'Mute sounds'} data-testid="mute-toggle">
               {muted ? <VolumeX className="h-5 w-5" aria-hidden /> : <Volume2 className="h-5 w-5" aria-hidden />}
             </button>
+            {voice.enabled && voice.supported && (
+              <button type="button" data-testid="voice-quick" className={`flex h-10 w-10 items-center justify-center rounded-full lg:hidden ${voice.status === 'on' && !voice.muted ? 'bg-emerald-500 text-white' : 'bg-white/10 text-slate-200'}`}
+                onClick={() => (voice.status === 'on' ? voice.setMuted(!voice.muted) : voice.join())}
+                aria-label={voice.status === 'on' ? (voice.muted ? 'Unmute microphone' : 'Mute microphone') : 'Join voice chat'}>
+                {voice.status === 'joining' ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden /> : voice.status === 'on' && !voice.muted ? <Mic className="h-5 w-5" aria-hidden /> : <MicOff className="h-5 w-5" aria-hidden />}
+              </button>
+            )}
             {chatEnabled && (
               <button type="button" onClick={() => setChatOpen(true)} data-testid="chat-fab"
                 className="relative flex h-10 w-10 items-center justify-center rounded-full bg-brand-500 text-white shadow-glow lg:hidden"
@@ -223,6 +238,7 @@ export default function GameRoom() {
               bot={p.bot} botDifficulty={p.botDifficulty} thinking={botTurn && p.userId === match.currentUserId} />
           ))}
         </div>
+        {voice.enabled && <VoicePanel voice={voice} players={match.players} />}
         {chatEnabled && <ChatPanel className="hidden lg:flex" messages={chat} myId={user?.id} onSend={sendChat} disabled={connection !== 'connected'} />}
         <div className="card p-4">
           <h3 className="mb-2 text-sm font-bold">Game log</h3>
