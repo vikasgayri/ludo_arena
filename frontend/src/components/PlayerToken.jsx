@@ -32,12 +32,19 @@ export default function PlayerToken({ color, cx, cy, index, movable = false, act
         <ellipse rx={r * 0.95} ry={r * 0.42} cy={r * 0.72} fill="rgba(0,0,0,.28)" />
         {active && !movable && <circle r={r + 0.24} fill={COLOR_HEX[color] || "#fff"} className="token-turn-ring" />}
         {active && !movable && <circle r={r + 0.075} fill="none" stroke="#fff" strokeWidth="0.09" />}
-        {movable && <circle r={r + 0.12} fill="#fff" className="token-halo" />}
+        {movable && <circle r={r + 0.14} fill="#fff" className="token-halo" />}
+        {movable && <circle r={r + 0.065} fill="none" stroke="#fff" strokeWidth="0.08" />}
         <circle r={r} fill={fill} stroke={COLOR_DARK[color] || '#333'} strokeWidth="0.05" />
         <circle r={r * 0.62} fill="none" stroke="rgba(255,255,255,.85)" strokeWidth="0.06" />
         <ellipse rx={r * 0.38} ry={r * 0.22} cx={-r * 0.22} cy={-r * 0.36} fill="rgba(255,255,255,.55)" />
         <text textAnchor="middle" dy="0.11" fontSize={0.3 * scale} fontWeight="800" fill="#fff" stroke={COLOR_DARK[color] || '#333'} strokeWidth="0.02" paintOrder="stroke" style={{ pointerEvents: 'none' }}>{index + 1}</text>
       </g>
+      {/* pointer above a movable token (outside the pulsing group so it does not scale) */}
+      {movable && (
+        <g className="token-arrow" style={{ pointerEvents: 'none' }} data-testid={`token-arrow-${color}-${index}`}>
+          <polygon points={`-0.17,${-r - 0.42} 0.17,${-r - 0.42} 0,${-r - 0.2}`} fill="#fff" stroke={COLOR_DARK[color] || '#333'} strokeWidth="0.04" strokeLinejoin="round" />
+        </g>
+      )}
     </g>
   );
 }

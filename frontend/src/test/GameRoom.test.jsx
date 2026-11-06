@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { USER } from './helpers';
+import { RoomApi } from '../lib/api';
+import { DICE_ROLL_MS, TURN_BANNER_MS } from '../lib/gameFx';
 import { useAuthStore } from '../store/authStore';
 import { __setSocketForTests, useGameStore } from '../store/gameStore';
 import GameRoom from '../pages/GameRoom';
@@ -27,7 +29,7 @@ const match = (extra = {}) => ({
 function setup(m, published = []) {
   const sock = { publish: (dest, body) => { published.push({ dest, body }); return true; }, subscribe: vi.fn(), unsubscribe: vi.fn(), disconnect: vi.fn() };
   __setSocketForTests(sock);
-  useGameStore.setState({ connect: () => {}, watchMatch: (id) => useGameStore.setState({ matchId: id, match: m }), unwatchMatch: () => {}, requestState: () => {}, connection: 'connected', events: [], chat: [], pending: false, error: null });
+  useGameStore.setState({ connect: () => {}, watchMatch: (id) => useGameStore.setState({ matchId: id, match: m }), unwatchMatch: () => {}, requestState: () => {}, connection: 'connected', events: [], lastUpdateEvents: [], chat: [], pending: false, error: null });
   useAuthStore.setState({ user: USER, status: 'authenticated' });
   return render(
     <MemoryRouter initialEntries={['/game/m1']}>
@@ -37,6 +39,17 @@ function setup(m, published = []) {
 }
 
 beforeEach(() => { vi.clearAllMocks(); });
+
+function cleanupAll() { cleanup(); }
+/** Render as whoever is logged in now (no user reset). */
+function setupAs(m) {
+  useGameStore.setState({ connect: () => {}, watchMatch: (id) => useGameStore.setState({ matchId: id, match: m }), unwatchMatch: () => {}, requestState: () => {}, connection: 'connected', events: [], lastUpdateEvents: [], chat: [], pending: false, error: null });
+  return render(
+    <MemoryRouter initialEntries={['/game/m1']}>
+      <Routes><Route path="/game/:matchId" element={<GameRoom />} /><Route path="*" element={<div>elsewhere</div>} /></Routes>
+    </MemoryRouter>,
+  );
+}
 
 describe('GameRoom', () => {
   it('lets the current player roll, sending a rollDice action to the server', async () => {
@@ -202,5 +215,141 @@ describe('GameRoom', () => {
       { id: 'c3', userId: 'u2', name: 'Ravi', color: 'YELLOW', text: 'ready?', at: '2026-11-05T10:00:02Z' },
     ] }); });
     expect(screen.getByTestId('chat-unread')).toHaveTextContent('2');
+  });
+
+  describe('turn, dice and menu UX', () => {
+    const four = [
+      players[0],
+      { ...players[1], color: 'GREEN', seat: 1 },
+      { userId: 'u3', name: 'Sita', avatar: 'avatar-03', color: 'YELLOW', seat: 2, tokens: [-1, -1, -1, -1], connected: true, forfeited: false, finishedTokens: 0, rank: 0 },
+      { userId: 'u4', name: 'Kabir', avatar: 'avatar-04', color: 'BLUE', seat: 3, tokens: [-1, -1, -1, -1], connected: true, forfeited: false, finishedTokens: 0, rank: 0 },
+    ];
+    const turnTo = (m, extra) => act(() => { useGameStore.getState().applyState({ ...m, ...extra }, []); });
+
+    it('the dice sits at the home of whoever is to move, for every colour (4 players)', () => {
+      const base = match({ mode: 4, players: four });
+      setup(base);
+      const dice = screen.getByTestId('stage-dice');
+      ['u1', 'u2', 'u3', 'u4'].forEach((uid, i) => {
+        turnTo(base, { seq: 10 + i, currentUserId: uid });
+        const color = four[i].color;
+        expect(dice).toHaveAttribute('data-dock', color);
+        expect(screen.getByTestId(`pod-${color}`)).toHaveAttribute('data-active', 'true');
+        four.filter((p) => p.color !== color).forEach((p) => expect(screen.getByTestId(`pod-${p.color}`)).toHaveAttribute('data-active', 'false'));
+      });
+    });
+
+    it('2 players: RED and YELLOW panels sit at opposite corners', () => {
+      setup(match());
+      expect(screen.getByTestId('pod-RED')).toBeInTheDocument();
+      expect(screen.getByTestId('pod-YELLOW')).toBeInTheDocument();
+      expect(screen.queryByTestId('pod-GREEN')).not.toBeInTheDocument();
+      expect(screen.getByTestId('stage-dice')).toHaveAttribute('data-dock', 'RED');
+    });
+
+    it('shows ROLL DICE only to the player who may roll, and hides it once rolled', async () => {
+      setup(match());
+      expect(screen.getByTestId('roll-prompt')).toBeInTheDocument();
+      expect(screen.getByTestId('pod-status-RED')).toHaveTextContent('YOUR TURN');
+      await userEvent.click(screen.getByRole('button', { name: /roll dice/i }));
+      expect(screen.queryByTestId('roll-prompt')).not.toBeInTheDocument();
+    });
+
+    it("never shows ROLL DICE on someone else's turn; their panel says TURN", () => {
+      setup(match({ currentUserId: 'u2' }));
+      expect(screen.queryByTestId('roll-prompt')).not.toBeInTheDocument();
+      expect(screen.getByTestId('pod-status-YELLOW')).toHaveTextContent(/^TURN$/);
+    });
+
+    it('no ROLL DICE while a move is awaited', () => {
+      setup(match({ diceValue: 4, awaitingMove: true, validMoves: [1, 2] }));
+      expect(screen.queryByTestId('roll-prompt')).not.toBeInTheDocument();
+    });
+
+    it('turn banner: YOUR TURN! for me, "<name>\'s Turn" for others, once per turn', () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const base = match();
+        setup(base);
+        expect(screen.getByTestId('turn-banner')).toHaveTextContent('YOUR TURN!');
+        act(() => { vi.advanceTimersByTime(TURN_BANNER_MS + 50); });
+        expect(screen.queryByTestId('turn-banner')).not.toBeInTheDocument();
+        // extra turn for the same player: no new banner
+        turnTo(base, { seq: 2, currentUserId: 'u1' });
+        expect(screen.queryByTestId('turn-banner')).not.toBeInTheDocument();
+        turnTo(base, { seq: 3, currentUserId: 'u2' });
+        expect(screen.getByTestId('turn-banner')).toHaveTextContent("Ravi's Turn");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('every viewer sees the same active player from the server state', () => {
+      const state = match({ currentUserId: 'u2' });
+      setup(state);
+      expect(screen.getByTestId('pod-YELLOW')).toHaveAttribute('data-active', 'true');
+      expect(screen.getByTestId('stage-dice')).toHaveAttribute('data-dock', 'YELLOW');
+      cleanupAll();
+      // the opponent's screen, same server state
+      useAuthStore.setState({ user: { ...USER, id: 'u2', name: 'Ravi' } });
+      setupAs(state);
+      expect(screen.getByTestId('pod-YELLOW')).toHaveAttribute('data-active', 'true');
+      expect(screen.getByTestId('pod-status-YELLOW')).toHaveTextContent('YOUR TURN');
+      expect(screen.getByTestId('roll-prompt')).toBeInTheDocument();
+    });
+
+    it('explains a roll without a legal move', () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      try {
+        const base = match({ currentUserId: 'u2' });
+        setup(base);
+        act(() => {
+          useGameStore.getState().applyState({ ...base, seq: 4, currentUserId: 'u1', lastDiceValue: 3, lastDiceUserId: 'u2' }, [
+            { eventId: 'n1', seq: 2, type: 'DICE_ROLLED', userId: 'u2', data: { value: 3 }, at: 1 },
+            { eventId: 'n2', seq: 3, type: 'NO_MOVES', userId: 'u2', data: { value: 3 }, at: 1 },
+            { eventId: 'n3', seq: 4, type: 'TURN_CHANGED', userId: null, data: { nextUserId: 'u1', extraTurn: false }, at: 1 },
+          ]);
+        });
+        act(() => { vi.advanceTimersByTime(DICE_ROLL_MS + 20); });
+        expect(screen.getByTestId('game-notice')).toHaveTextContent('Ravi has no legal move with a 3');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('Menu > Leave game asks first; confirming sends the leave/forfeit request and leaves the page', async () => {
+      RoomApi.leave.mockResolvedValue(null);
+      setup(match());
+      await userEvent.click(screen.getByTestId('menu-button'));
+      expect(screen.getByTestId('game-menu')).toBeInTheDocument();
+      await userEvent.click(screen.getByTestId('menu-leave'));
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(RoomApi.leave).not.toHaveBeenCalled();
+      await userEvent.click(screen.getByTestId('menu-button'));
+      await userEvent.click(screen.getByTestId('menu-leave'));
+      await userEvent.click(screen.getByRole('button', { name: 'Leave game' }));
+      await waitFor(() => expect(RoomApi.leave).toHaveBeenCalledWith('r1'));
+      await screen.findByText('elsewhere');
+    });
+
+    it('Menu > Resume closes the menu; sound settings are reachable', async () => {
+      setup(match());
+      await userEvent.click(screen.getByTestId('menu-button'));
+      await userEvent.click(screen.getByTestId('menu-sound'));
+      expect(screen.getByTestId('sound-settings')).toBeInTheDocument();
+      expect(screen.getByLabelText('Background music volume')).toBeInTheDocument();
+      await userEvent.click(screen.getByRole('button', { name: 'Back' }));
+      await userEvent.click(screen.getByTestId('menu-resume'));
+      expect(screen.queryByTestId('game-menu')).not.toBeInTheDocument();
+    });
+
+    it('legal tokens get the glow and pointer, illegal ones stay normal', () => {
+      setup(match({ diceValue: 6, awaitingMove: true, validMoves: [0, 3] }));
+      expect(screen.getByTestId('token-arrow-RED-0')).toBeInTheDocument();
+      expect(screen.getByTestId('token-arrow-RED-3')).toBeInTheDocument();
+      expect(screen.queryByTestId('token-arrow-RED-1')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('token-arrow-RED-2')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('token-arrow-YELLOW-0')).not.toBeInTheDocument();
+    });
   });
 });

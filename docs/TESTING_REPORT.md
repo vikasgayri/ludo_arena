@@ -76,6 +76,19 @@ replica set primary discovered, indexes created, `Tomcat started on port 8080`, 
   Playwright (iPhone 13, production build): offline 3-player game played ~40 actions with no page errors; active
   player's four tokens ringed.
 
+* **Re-run 2026-11-06 after gameplay UX pass (dice at the active player's home, ROLL DICE prompt, turn banner, legal-move
+  pointer, game menu + leave confirmation, louder audio + volume settings, board polish):** 17 files, **150 tests, all
+  passed** (+11 `GameRoom.test.jsx`: dice dock for all 4 colours, 2-player corners, ROLL DICE only when allowed, YOUR
+  TURN / TURN labels, banner once per turn, same active player for two different viewers, no-legal-move notice, menu
+  leave with confirm/cancel sends `RoomApi.leave`, menu resume/sound, legal-token pointer; +4 `localGame.test.jsx`:
+  dock + banner offline, menu pauses rolling, leave clears the saved game, volume saved; +6 `sound.test.js`; +2
+  `board.test.js`). Build OK (JS 466.9 kB / 141.9 kB gzip).
+  Playwright (production build, offline 4-player game, ~200 actions each) on iPhone 13, 320 px and 1366 px: dice docked
+  at the correct corner for RED/GREEN/YELLOW/BLUE, never over the board, no horizontal scroll, no console errors.
+  Audio rendered in Chromium's OfflineAudioContext: effect peaks -8 to -20 dBFS (before: -21 to -30), all five loudest
+  effects at once peak 0.58 (-4.8 dBFS), 0 clipped samples; mute renders silence; master 0.4 lowers the peak by ~6 dB.
+  Not tested: the online screens against the live Render/Vercel stack and on physical phones.
+
 ## 5. Not covered by any test today
 `MatchService` (finalization, idempotency, timeouts, reconnect), `StoreService`, `AdminService`, `PaymentService`/`RazorpayProvider`, `LeaderboardService`, `NotificationService`, `GameSocketController`, REST controllers (no MockMvc slices without Mongo), bots (do not exist), OTP reset (does not exist), announcements (do not exist), E2E and mobile browser flows, load/WebSocket stress.
 
@@ -114,3 +127,4 @@ Paste the tail of each output; results are recorded here.
 | 2026-11-05 | Voice chat (WebRTC): Vitest 104/104 (+10 VoiceClient unit tests); **real two-browser test** (Chromium, fake mics, simultaneous join): both peers `connected` in ~0.6 s, audio packets flowing both ways, mute disables the track, leave drops the peer, re-join reconnects. Not yet tested on real phones / mobile data; backend VoiceService (8 tests) awaiting `mvn clean test` |
 | 2026-11-05 | Smooth token walking, dice shuffle/land, sounds + mute, classic board, mobile layout, vercel.json, origin patterns, Dockerfile; Vitest 86/86; backend change awaiting `mvn clean test` |
 | 2026-11-06 | 3-player rooms + host "Start now", offline pass & play (`/local`), turn-player token highlight, latency work (in-memory running matches, broadcast before DB write, ordered write-behind, instant dice + optimistic move). Vitest 127/127, engine harness 74/74; Spring tests (MatchServiceLatencyTest, RoomServiceTest, MatchServiceBotTest) **not executed yet** - Maven Central is blocked in the sandbox, awaiting owner's `mvn clean test` |
+| 2026-11-06 | Gameplay UX pass (dice follows active player's home, ROLL DICE prompt, turn banner, legal-move pointer, game menu with leave confirmation, louder audio with master/effects/music volume + mute, background music, board/dice polish). Vitest 150/150, build OK, Playwright placement + audio level checks. Backend unchanged in this pass |

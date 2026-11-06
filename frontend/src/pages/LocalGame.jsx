@@ -1,18 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, Play, RotateCcw, Smartphone, Trophy, Volume2, VolumeX, X } from 'lucide-react';
+import { ArrowLeft, Menu, Play, RotateCcw, Smartphone, Trophy, Volume2, VolumeX, X } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import { COLORS_FOR, isValidSaved, move, newGame, roll, rollValue } from '../lib/localEngine';
 import { prefersReducedMotion, useAnimatedPlayers } from '../lib/animation';
-import { useDiceRoll, useGameSounds } from '../lib/gameFx';
-import { isMuted, onMutedChange, setMuted } from '../lib/sound';
+import { useDiceRoll, useGameNotice, useGameSounds, useTurnBanner } from '../lib/gameFx';
+import { isMuted, onMutedChange, play, setMuted, startMusic, stopMusic } from '../lib/sound';
 import { describeEvent } from '../lib/events';
 import { COLOR_HEX } from '../lib/format';
 import LudoBoard from '../components/LudoBoard';
-import Dice from '../components/Dice';
+import BoardStage from '../components/BoardStage';
+import GameMenu from '../components/GameMenu';
 import PlayerCard from '../components/PlayerCard';
 import Confetti from '../components/Confetti';
-import Modal, { ConfirmModal } from '../components/Modal';
+import Modal from '../components/Modal';
 
 const SAVE_KEY = 'ludo-arena:local-game';
 const NAMES_KEY = 'ludo-arena:local-names';
@@ -103,7 +104,7 @@ export default function LocalGame() {
     const s = store.read(SAVE_KEY);
     return isValidSaved(s) && s.status === 'ACTIVE' ? s : null;
   });
-  const [exitOpen, setExitOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false); // also pauses the local game (no rolls / auto-moves)
   const [resultOpen, setResultOpen] = useState(false);
   const [muted, setMutedState] = useState(isMuted());
   useEffect(() => onMutedChange(setMutedState), []);
@@ -118,6 +119,21 @@ export default function LocalGame() {
 
   const start = (names) => { setLog([]); setResultOpen(false); apply(newGame(names)); };
   const resume = () => { setLog([]); setGame(saved); setLastEvents([]); setSaved(null); };
+  /** Ends the local game completely: no saved copy, no events, back to the offline setup screen. */
+  const endGame = () => {
+    store.remove(SAVE_KEY);
+    setMenuOpen(false);
+    setResultOpen(false);
+    setGame(null);
+    setLastEvents([]);
+    setLog([]);
+    setSaved(null);
+  };
+  useEffect(() => {
+    if (!game) return undefined;
+    startMusic();
+    return () => stopMusic();
+  }, [!game]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const animationsOn = !prefersReducedMotion();
   const { players: shownPlayers, animating } = useAnimatedPlayers(game?.players || [], { enabled: animationsOn });
@@ -126,7 +142,7 @@ export default function LocalGame() {
 
   const current = game?.players[game.turnIndex];
   const active = game?.status === 'ACTIVE';
-  const settled = !diceRolling && !animating;
+  const settled = !diceRolling && !animating && !menuOpen;
   const canRoll = active && !game.awaitingMove && settled;
   const movable = active && game.awaitingMove && settled ? game.validMoves : [];
 
@@ -155,39 +171,50 @@ export default function LocalGame() {
     return (id) => m.get(id) || 'Someone';
   }, [game]);
 
+  const turnBanner = useTurnBanner(game?.currentUserId, active, true);
+  const notice = useGameNotice(lastEvents, nameOf);
+
   if (!game) return <Setup onStart={start} saved={saved} onResume={resume} />;
+  const bannerPlayer = turnBanner && game.players.find((p) => p.userId === turnBanner.userId);
+  const banner = bannerPlayer ? { key: turnBanner.key, color: bannerPlayer.color, text: `${bannerPlayer.name}'s Turn` } : null;
 
   const winner = game.players.find((p) => p.userId === game.winnerId);
   const turnColor = COLOR_HEX[current.color];
   return (
     <div className="mx-auto grid max-w-6xl gap-6 px-3 py-4 lg:grid-cols-[minmax(0,1fr)_300px]">
       <div className="flex flex-col items-center">
-        <div className="mb-3 flex w-full max-w-[640px] items-center justify-between gap-2">
-          <button type="button" className="btn-ghost -ml-2" onClick={() => (active ? setExitOpen(true) : setGame(null))}><ArrowLeft className="h-4 w-4" aria-hidden />Exit</button>
+        <div className="mb-2 flex w-full max-w-[640px] items-center justify-between gap-2">
+          <button type="button" className="btn-secondary px-3 py-1.5" onClick={() => { play('click'); setMenuOpen(true); }} aria-label="Open game menu" data-testid="menu-button">
+            <Menu className="h-4 w-4" aria-hidden />Menu
+          </button>
           <span className="badge bg-emerald-500/15 text-emerald-300"><Smartphone className="mr-1 h-3 w-3" aria-hidden />Offline</span>
           <button type="button" className="btn-ghost p-2" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute sounds' : 'Mute sounds'}>
             {muted ? <VolumeX className="h-5 w-5" aria-hidden /> : <Volume2 className="h-5 w-5" aria-hidden />}
           </button>
         </div>
-        <div className="mb-3 flex w-full max-w-[640px] flex-wrap justify-center gap-2">
-          {game.players.map((p) => {
-            const isTurn = active && p.userId === current.userId;
-            return (
-              <span key={p.userId} className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition ${isTurn ? 'bg-white/15 text-white ring-2 ring-white/60' : 'bg-white/5 text-slate-300'} ${p.forfeited ? 'line-through opacity-40' : ''}`}>
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: COLOR_HEX[p.color] }} aria-hidden />
-                {p.name}<span className="text-slate-400">{p.finishedTokens}/4</span>
-              </span>
-            );
-          })}
-        </div>
-        <LudoBoard
+        <BoardStage
+          localPlay
+          seats={game.players.map((p) => ({ ...p, avatar: p.avatar || `avatar-0${p.seat + 1}`, isMe: false }))}
           activeColor={active ? current.color : null}
-          players={shownPlayers}
-          movableTokens={movable}
-          movableUserId={active ? current.userId : null}
-          onTokenSelect={doMove}
-        />
-        <div className="sticky bottom-3 z-20 mt-4 flex w-full max-w-[640px] items-center justify-between gap-4 rounded-2xl border-2 bg-navy-800/90 p-4 shadow-xl backdrop-blur lg:static"
+          banner={banner}
+          notice={notice}
+          dice={{
+            value: game.diceValue ?? game.lastDiceValue,
+            rolling: diceRolling,
+            canRoll,
+            onRoll: doRoll,
+            label: `Roll dice for ${current.name}`,
+          }}
+        >
+          <LudoBoard
+            activeColor={active ? current.color : null}
+            players={shownPlayers}
+            movableTokens={movable}
+            movableUserId={active ? current.userId : null}
+            onTokenSelect={doMove}
+          />
+        </BoardStage>
+        <div className="relative mt-3 flex w-full max-w-[640px] items-center justify-between gap-4 rounded-2xl border-2 bg-navy-800/90 p-4 shadow-xl backdrop-blur"
           style={{ borderColor: active ? turnColor : 'rgba(255,255,255,.1)' }} data-testid="local-turn-bar">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-wide text-slate-400">{active ? 'Turn' : 'Game over'}</p>
@@ -200,18 +227,13 @@ export default function LocalGame() {
               </p>
             )}
           </div>
-          <div className="flex flex-col items-center gap-1">
-            <Dice value={game.diceValue ?? game.lastDiceValue} rolling={diceRolling} onClick={canRoll ? doRoll : undefined}
-              disabled={!canRoll} label={canRoll ? `Roll dice for ${current.name}` : undefined} size={76} />
-            <span className="text-xs text-slate-400">{canRoll ? 'Tap to roll' : ''}</span>
-          </div>
         </div>
       </div>
 
       <aside className="space-y-4" aria-label="Game info">
         <div className="space-y-2">
           {game.players.map((p) => (
-            <PlayerCard key={p.userId} name={p.name} color={p.color} active={active && p.userId === current.userId}
+            <PlayerCard key={p.userId} name={p.name} avatar={p.avatar || `avatar-0${p.seat + 1}`} color={p.color} active={active && p.userId === current.userId}
               forfeited={p.forfeited} finishedTokens={p.finishedTokens} rank={p.rank || undefined} />
           ))}
         </div>
@@ -221,17 +243,16 @@ export default function LocalGame() {
             {[...log].reverse().slice(0, 40).map((e) => <li key={e.eventId}>{describeEvent(e, nameOf)}</li>)}
           </ol>
         </div>
-        <button type="button" className="btn-secondary w-full" onClick={() => setExitOpen(true)}><RotateCcw className="h-4 w-4" aria-hidden />New game</button>
+        <button type="button" className="btn-secondary w-full" onClick={() => setMenuOpen(true)}><RotateCcw className="h-4 w-4" aria-hidden />Menu / new game</button>
       </aside>
 
       {finished && winner && <Confetti />}
 
-      <ConfirmModal open={exitOpen} title="Leave this game?" confirmLabel="Leave" danger
-        message="The game on this phone will be ended. You can start a new one with the same names."
-        onConfirm={() => { store.remove(SAVE_KEY); setExitOpen(false); setGame(null); setSaved(null); }} onClose={() => setExitOpen(false)} />
+      <GameMenu open={menuOpen} onClose={() => setMenuOpen(false)} onLeave={endGame}
+        leaveMessage={active ? 'This game on this phone will end and cannot be resumed. You can start a new one with the same names.' : 'Back to the offline menu?'} />
 
       <Modal open={resultOpen} onClose={() => setResultOpen(false)} title={winner ? `${winner.name} wins! 🎉` : 'Game over'} size="sm"
-        footer={<><button className="btn-secondary" onClick={() => { setResultOpen(false); setGame(null); }}><X className="h-4 w-4" aria-hidden />Close</button>
+        footer={<><button className="btn-secondary" onClick={endGame}><X className="h-4 w-4" aria-hidden />Close</button>
           <button className="btn-primary" onClick={() => start(game.players.map((p) => p.name))} data-testid="local-rematch"><RotateCcw className="h-4 w-4" aria-hidden />Play again</button></>}>
         <ol className="space-y-1 text-sm">
           {[...game.players].sort((a, b) => (a.rank || 99) - (b.rank || 99)).map((p) => (

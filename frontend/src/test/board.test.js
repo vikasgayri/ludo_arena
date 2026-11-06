@@ -51,3 +51,25 @@ describe('board geometry', () => {
     expect(a).not.toEqual(b);
   });
 });
+
+describe('home corners (dice + player panel placement)', () => {
+  it('maps every colour to the corner of its own yard', async () => {
+    const { homeCorner } = await import('../lib/board');
+    expect(homeCorner('RED')).toEqual({ side: 'left', edge: 'top' });
+    expect(homeCorner('GREEN')).toEqual({ side: 'right', edge: 'top' });
+    expect(homeCorner('YELLOW')).toEqual({ side: 'right', edge: 'bottom' });
+    expect(homeCorner('BLUE')).toEqual({ side: 'left', edge: 'bottom' });
+    expect(homeCorner('PURPLE')).toBeNull();
+  });
+
+  it('the dice docks at a different spot for each colour, on that colour\'s side', async () => {
+    const { diceDockStyle } = await import('../components/BoardStage');
+    const docks = ['RED', 'GREEN', 'YELLOW', 'BLUE'].map(diceDockStyle);
+    expect(new Set(docks.map((d) => JSON.stringify(d))).size).toBe(4);
+    expect(diceDockStyle('RED').left).not.toMatch(/100%/); // left side
+    expect(diceDockStyle('GREEN').left).toMatch(/100%/); // right side
+    expect(diceDockStyle('YELLOW').top).toMatch(/100%/); // bottom strip
+    expect(diceDockStyle('RED').top).not.toMatch(/100%/); // top strip
+    expect(diceDockStyle(null)).toBeNull();
+  });
+});

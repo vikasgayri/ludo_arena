@@ -61,11 +61,79 @@ export function useGameSounds(lastUpdateEvents, myUserId) {
         }
         case 'TOKEN_CAPTURED': at(walkMs, 'capture'); break;
         case 'TOKEN_HOME': at(walkMs, 'home'); break;
-        case 'TURN_CHANGED': if (d.nextUserId === myUserId) at(walkMs + 120, 'turn'); break;
+        // the turn chime is played by useTurnBanner (one place, so it is never doubled)
         case 'MATCH_FINISHED': at(walkMs + 200, d.winnerId === myUserId ? 'win' : 'lose'); break;
         default: break;
       }
     });
   }, [lastUpdateEvents, myUserId]);
   useEffect(() => () => timers.current.forEach(clearTimeout), []);
+}
+
+export const TURN_BANNER_MS = 1500;
+export const NOTICE_MS = 1900;
+
+/**
+ * Shows a short "YOUR TURN!" / "<name>'s Turn" banner each time the turn passes to a different player, and plays the
+ * turn chime once. The player to move always comes from the game state handed in (server state online, local engine
+ * state offline); nothing here decides whose turn it is. An extra turn (same player again) shows no new banner.
+ */
+export function useTurnBanner(currentUserId, active, isMine) {
+  const [banner, setBanner] = useState(null);
+  const last = useRef(null);
+  const count = useRef(0);
+  const timer = useRef(null);
+  useEffect(() => {
+    if (!active) { last.current = null; return; }
+    if (!currentUserId || last.current === currentUserId) return;
+    last.current = currentUserId;
+    count.current += 1;
+    setBanner({ key: count.current, userId: currentUserId });
+    play(isMine ? 'turn' : 'turnOther');
+    clearTimeout(timer.current);
+    timer.current = setTimeout(() => setBanner(null), TURN_BANNER_MS);
+  }, [currentUserId, active, isMine]);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  return banner;
+}
+
+/**
+ * A short message for things that happen without a token moving: no legal move, three sixes, a player leaving.
+ * Shown after the dice has landed so the rolled value is visible first.
+ */
+export function useGameNotice(lastUpdateEvents, nameOf) {
+  const [notice, setNotice] = useState(null);
+  const timers = useRef([]);
+  const count = useRef(0);
+  useEffect(() => {
+    const events = lastUpdateEvents || [];
+    let text = null;
+    let sound = null;
+    let wait = 0;
+    events.forEach((e) => {
+      const who = nameOf(e.userId);
+      const you = who === 'You';
+      if (e.type === 'NO_MOVES') {
+        text = `${you ? 'No legal move' : `${who} has no legal move`} with a ${e.data?.value} — turn passes`;
+        sound = 'noMove';
+        wait = DICE_ROLL_MS;
+      } else if (e.type === 'TRIPLE_SIX') {
+        text = `${you ? 'You' : who} rolled three sixes — turn lost`;
+        sound = 'noMove';
+        wait = DICE_ROLL_MS;
+      } else if (e.type === 'PLAYER_FORFEITED') {
+        text = `${you ? 'You' : who} left the game`;
+      }
+    });
+    if (!text) return;
+    count.current += 1;
+    const key = count.current;
+    timers.current.push(setTimeout(() => {
+      setNotice({ key, text });
+      if (sound) play(sound);
+    }, wait));
+    timers.current.push(setTimeout(() => setNotice((n) => (n && n.key === key ? null : n)), wait + NOTICE_MS));
+  }, [lastUpdateEvents]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => timers.current.forEach(clearTimeout), []);
+  return notice;
 }

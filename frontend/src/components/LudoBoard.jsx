@@ -1,7 +1,7 @@
 import { useId, useMemo } from 'react';
 import { BASE_AREA, BASE_SLOTS, CENTER, COLOR_START, HOME_COLUMN, SAFE_CELLS, TRACK, cellFor, globalIndex, stackOffset } from '../lib/board';
 import { BOARD_SKINS } from '../lib/cosmetics';
-import { COLOR_DARK, COLOR_HEX, COLOR_LIGHT } from '../lib/format';
+import { COLOR_DARK, COLOR_HEX, COLOR_LIGHT, COLOR_SOFT } from '../lib/format';
 import PlayerToken from './PlayerToken';
 
 const COLORS = ['RED', 'GREEN', 'YELLOW', 'BLUE'];
@@ -79,8 +79,18 @@ export default function LudoBoard({ players = [], movableTokens = [], movableUse
       </defs>
 
       {/* frame */}
-      <rect x="-0.25" y="-0.25" width="15.5" height="15.5" rx="0.55" fill="#3b2a1a" />
-      <rect x="-0.08" y="-0.08" width="15.16" height="15.16" rx="0.4" fill="#c99a5b" />
+      <linearGradient id={`frame-${uid}`} x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#5b3d22" />
+        <stop offset="50%" stopColor="#3b2a1a" />
+        <stop offset="100%" stopColor="#24180e" />
+      </linearGradient>
+      <linearGradient id={`trim-${uid}`} x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0%" stopColor="#f3d08a" />
+        <stop offset="50%" stopColor="#c99a5b" />
+        <stop offset="100%" stopColor="#9a6b32" />
+      </linearGradient>
+      <rect x="-0.25" y="-0.25" width="15.5" height="15.5" rx="0.55" fill={`url(#frame-${uid})`} />
+      <rect x="-0.08" y="-0.08" width="15.16" height="15.16" rx="0.4" fill={`url(#trim-${uid})`} />
       <rect x="0" y="0" width="15" height="15" rx="0.25" fill={theme.bg} />
 
       {/* base yards */}
@@ -89,11 +99,15 @@ export default function LudoBoard({ players = [], movableTokens = [], movableUse
         return (
           <g key={color} opacity={dim ? 0.35 : 1}>
             <rect x={x} y={y} width="6" height="6" fill={`url(#${yard(color)})`} />
-            <rect x={x + 0.75} y={y + 0.75} width="4.5" height="4.5" rx="0.55" fill="#fff" />
+            {/* soft inner light and a raised white plate */}
+            <rect x={x + 0.18} y={y + 0.18} width="5.64" height="5.64" rx="0.35" fill="none" stroke="#fff" strokeOpacity="0.25" strokeWidth="0.08" />
+            <rect x={x + 0.8} y={y + 0.86} width="4.5" height="4.5" rx="0.6" fill="#000" opacity="0.18" />
+            <rect x={x + 0.75} y={y + 0.75} width="4.5" height="4.5" rx="0.6" fill="#fff" />
             {BASE_SLOTS[color].map(([c, r]) => (
               <g key={`${c}-${r}`}>
-                <circle cx={c + 0.5} cy={r + 0.5} r="0.5" fill={COLOR_HEX[color]} opacity="0.18" />
-                <circle cx={c + 0.5} cy={r + 0.5} r="0.5" fill="none" stroke={COLOR_HEX[color]} strokeWidth="0.07" />
+                <circle cx={c + 0.5} cy={r + 0.5} r="0.52" fill={COLOR_SOFT[color]} />
+                <circle cx={c + 0.5} cy={r + 0.5} r="0.52" fill="none" stroke={COLOR_HEX[color]} strokeWidth="0.08" />
+                <circle cx={c + 0.5} cy={r + 0.56} r="0.36" fill={COLOR_HEX[color]} opacity="0.12" />
               </g>
             ))}
             {activeColor === color && (
@@ -109,8 +123,12 @@ export default function LudoBoard({ players = [], movableTokens = [], movableUse
       ))}
 
       {/* home columns */}
-      {Object.entries(HOME_COLUMN).map(([color, cells]) => cells.map(([c, r]) => (
-        <rect key={`h${color}${c}${r}`} x={c} y={r} width="1" height="1" fill={COLOR_HEX[color]} stroke={theme.line} strokeWidth="0.04" />
+      {/* home paths: brighter towards the entrance, full colour towards the centre */}
+      {Object.entries(HOME_COLUMN).map(([color, cells]) => cells.map(([c, r], i) => (
+        <g key={`h${color}${c}${r}`}>
+          <rect x={c} y={r} width="1" height="1" fill={COLOR_HEX[color]} stroke={theme.line} strokeWidth="0.04" />
+          <rect x={c + 0.06} y={r + 0.06} width="0.88" height="0.88" rx="0.12" fill="#fff" opacity={0.32 * (1 - i / 4)} />
+        </g>
       )))}
 
       {/* start squares (coloured, white star) and star safe cells */}
@@ -123,9 +141,16 @@ export default function LudoBoard({ players = [], movableTokens = [], movableUse
           </g>
         );
       })}
+      {/* safe cells: tinted tile + star */}
       {SAFE_CELLS.filter((i) => !Object.values(COLOR_START).includes(i)).map((i) => {
         const [c, r] = TRACK[i];
-        return <Star key={`star${i}`} cx={c + 0.5} cy={r + 0.5} r={0.36} fill={theme.line} opacity={0.9} />;
+        return (
+          <g key={`star${i}`} data-testid={`safe-cell-${i}`}>
+            <rect x={c + 0.04} y={r + 0.04} width="0.92" height="0.92" rx="0.14" fill="#e8eef8" />
+            <circle cx={c + 0.5} cy={r + 0.5} r="0.42" fill="none" stroke="#94a3b8" strokeWidth="0.04" strokeDasharray="0.12 0.08" />
+            <Star cx={c + 0.5} cy={r + 0.5} r={0.34} fill="#7b8aa3" opacity={0.95} />
+          </g>
+        );
       })}
 
       {/* arrows into each home column */}

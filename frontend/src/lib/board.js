@@ -69,3 +69,15 @@ export function stackOffset(position, count) {
 export function isSafeCell(index) {
   return SAFE_CELLS.includes(index);
 }
+
+/**
+ * Which corner of the board a colour's home (base yard) sits in, derived from BASE_AREA - the same table the board
+ * draws the yards from - so the dice and player panels always line up with the real yard of that colour.
+ * Returns { side: 'left'|'right', edge: 'top'|'bottom' }.
+ */
+export function homeCorner(color) {
+  const area = BASE_AREA[color];
+  if (!area) return null;
+  const mid = 7.5; // board is 15 cells wide; a 6x6 yard starting left/above the middle is on that side
+  return { side: area[0] + 3 < mid ? 'left' : 'right', edge: area[1] + 3 < mid ? 'top' : 'bottom' };
+}

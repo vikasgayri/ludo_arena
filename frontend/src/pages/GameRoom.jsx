@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Bot, Clock, Flag, Loader2, MessageCircle, Mic, MicOff, Trophy, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react';
+import { Bot, Clock, Flag, Loader2, Menu, MessageCircle, Mic, MicOff, Trophy, Volume2, VolumeX, Wifi, WifiOff } from 'lucide-react';
 import { useGameStore } from '../store/gameStore';
 import { useAuthStore } from '../store/authStore';
 import { useWalletStore } from '../store/walletStore';
 import { RoomApi, errorMessage } from '../lib/api';
 import { describeEvent } from '../lib/events';
 import { prefersReducedMotion, useAnimatedPlayers } from '../lib/animation';
-import { useDiceRoll, useGameSounds } from '../lib/gameFx';
-import { isMuted, onMutedChange, setMuted } from '../lib/sound';
+import { useDiceRoll, useGameNotice, useGameSounds, useTurnBanner } from '../lib/gameFx';
+import { isMuted, onMutedChange, setMuted, startMusic, stopMusic } from '../lib/sound';
 import { COLOR_HEX } from '../lib/format';
 import Confetti from '../components/Confetti';
 import ChatPanel from '../components/ChatPanel';
@@ -17,7 +17,8 @@ import { useVoice } from '../lib/useVoice';
 import { play } from '../lib/sound';
 import { toast } from '../store/toastStore';
 import LudoBoard from '../components/LudoBoard';
-import Dice from '../components/Dice';
+import BoardStage from '../components/BoardStage';
+import GameMenu from '../components/GameMenu';
 import PlayerCard from '../components/PlayerCard';
 import Modal, { ConfirmModal } from '../components/Modal';
 import LoadingSkeleton from '../components/LoadingSkeleton';
@@ -42,6 +43,7 @@ export default function GameRoom() {
   const user = useAuthStore((s) => s.user);
   const { watchMatch, unwatchMatch, match, events, lastUpdateEvents, chat, sendChat, sendVoice, connection, pending, error, rollDice, moveToken, clearError, serverOffsetMs, requestState } = useGameStore();
   const [leaveOpen, setLeaveOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [resultOpen, setResultOpen] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
@@ -89,6 +91,7 @@ export default function GameRoom() {
   useGameSounds(lastUpdateEvents, user?.id);
   const [muted, setMutedState] = useState(isMuted());
   useEffect(() => onMutedChange(setMutedState), []);
+  useEffect(() => { startMusic(); return () => stopMusic(); }, []);
 
   // voice chat (online matches only; peer-to-peer WebRTC, the server only relays signalling)
   const voice = useVoice({ match, userId: user?.id, sendVoice });
@@ -154,10 +157,22 @@ export default function GameRoom() {
     return (id) => m.get(id) || 'Someone';
   }, [match, user?.id]);
 
+  // turn banner + chime and short notices, all driven by the server state of this match
+  const turnBanner = useTurnBanner(match?.currentUserId, match?.status === 'ACTIVE', isMyTurn);
+  const banner = turnBanner && match ? (() => {
+    const p = match.players.find((x) => x.userId === turnBanner.userId);
+    return p ? { key: turnBanner.key, color: p.color, text: p.userId === user?.id ? 'YOUR TURN!' : `${p.name}'s Turn` } : null;
+  })() : null;
+  const notice = useGameNotice(lastUpdateEvents, nameOf);
+
+  // Leaving is a real server action: the authenticated leave call forfeits this player's seat in the match
+  // (the engine passes the turn on / ends the match, everyone gets the update), then the socket subscriptions
+  // are dropped when this page unmounts.
   const leave = async () => {
     setLeaving(true);
     try {
-      if (match?.roomId) await RoomApi.leave(match.roomId);
+      if (match?.roomId && match.status === 'ACTIVE') await RoomApi.leave(match.roomId);
+      setMenuOpen(false);
       navigate('/dashboard', { replace: true });
     } catch (e) {
       toast.error(errorMessage(e));
@@ -180,50 +195,46 @@ export default function GameRoom() {
         {connection !== 'connected' && (
           <div role="status" className="mb-3 flex w-full items-center gap-2 rounded-xl bg-yellow-500/10 px-3 py-2 text-sm text-yellow-200"><WifiOff className="h-4 w-4" aria-hidden />Connection lost — reconnecting…</div>
         )}
-        <div className="mb-3 flex w-full flex-wrap justify-center gap-2 lg:hidden" data-testid="mobile-players">
-          {match.players.map((p) => {
-            const isActive = match.status === 'ACTIVE' && p.userId === match.currentUserId;
-            return (
-              <span key={p.userId} className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition ${isActive ? 'bg-white/15 text-white ring-2 ring-white/60' : 'bg-white/5 text-slate-300'} ${speakingIds.has(p.userId) ? 'ring-2 ring-emerald-400' : ''} ${p.forfeited ? 'line-through opacity-40' : ''}`}>
-                <span className="h-2.5 w-2.5 rounded-full" style={{ background: COLOR_HEX[p.color] }} aria-hidden />
-                {p.userId === user?.id ? 'You' : p.name}
-                {p.bot && <Bot className="h-3 w-3 text-accent-400" aria-label="computer" />}
-                {speakingIds.has(p.userId) && <Mic className="h-3 w-3 text-emerald-300" aria-label="speaking" />}
-              </span>
-            );
-          })}
+        <div className="mb-2 flex w-full max-w-[640px] items-center justify-between gap-2">
+          <button type="button" className="btn-secondary px-3 py-1.5" onClick={() => { play('click'); setMenuOpen(true); }} aria-label="Open game menu" data-testid="menu-button">
+            <Menu className="h-4 w-4" aria-hidden />Menu
+          </button>
+          {match.vsComputer && <span className="truncate text-xs text-slate-400">Practice vs computer · {String(match.botDifficulty || '').toLowerCase()}</span>}
         </div>
-        <LudoBoard
+        <BoardStage
+          seats={match.players.map((p) => ({ ...p, isMe: p.userId === user?.id }))}
           activeColor={match.status === 'ACTIVE' ? current?.color : null}
-          players={shownPlayers}
-          movableTokens={movable}
-          movableUserId={isMyTurn ? user?.id : null}
-          onTokenSelect={selectToken}
-          skin={me?.boardSkin || 'default'}
-        />
-        <div className="sticky bottom-3 z-20 mt-4 flex w-full max-w-[640px] items-center justify-between gap-4 rounded-2xl border border-white/10 bg-navy-800/90 p-4 shadow-xl backdrop-blur lg:static">
+          speakingIds={speakingIds}
+          banner={banner}
+          notice={notice}
+          dice={{
+            value: shownDice,
+            rolling: diceRolling || (pending && !match.awaitingMove),
+            skin: diceOwner?.diceSkin || 'default',
+            canRoll,
+            onRoll: roll,
+            label: 'Roll dice',
+          }}
+        >
+          <LudoBoard
+            activeColor={match.status === 'ACTIVE' ? current?.color : null}
+            players={shownPlayers}
+            movableTokens={movable}
+            movableUserId={isMyTurn ? user?.id : null}
+            onTokenSelect={selectToken}
+            skin={me?.boardSkin || 'default'}
+          />
+        </BoardStage>
+        <div className="relative mt-3 flex w-full max-w-[640px] items-center justify-between gap-4 rounded-2xl border border-white/10 bg-navy-800/90 p-4 shadow-xl backdrop-blur">
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-wide text-slate-400">{match.status === 'ACTIVE' ? 'Turn' : 'Match over'}</p>
             <p className="flex items-center gap-1.5 text-base font-bold leading-tight sm:text-lg" data-testid="turn-label">{botTurn && <Bot className="h-5 w-5 shrink-0 text-accent-400" aria-hidden />}{turnLabel}</p>
-            {match.vsComputer && <p className="text-xs text-slate-400">Practice vs computer · {String(match.botDifficulty || '').toLowerCase()}</p>}
             {match.status === 'ACTIVE' && !botTurn && secondsLeft != null && (
               <p className={`flex items-center gap-1 text-sm ${secondsLeft <= 5 ? 'text-red-300' : 'text-slate-400'}`}><Clock className="h-4 w-4" aria-hidden /><span data-testid="turn-timer">{secondsLeft}s</span></p>
             )}
             {isMyTurn && match.awaitingMove && (
               <p className="mt-1 text-sm text-brand-400" data-testid="move-hint">{onlyChoice != null ? 'Only one move — moving automatically…' : 'Pick a highlighted token to move.'}</p>
             )}
-          </div>
-          <div className="flex flex-col items-center gap-1">
-            <Dice
-              value={shownDice}
-              rolling={diceRolling || (pending && !match.awaitingMove)}
-              skin={diceOwner?.diceSkin || 'default'}
-              onClick={canRoll ? roll : undefined}
-              disabled={!canRoll}
-              label={canRoll ? 'Roll dice' : undefined}
-              size={76}
-            />
-            <span className="text-xs text-slate-400">{canRoll ? 'Tap to roll' : ''}</span>
           </div>
           <div className="flex flex-col items-center gap-2 self-stretch">
             <button type="button" className="btn-ghost p-2" onClick={() => setMuted(!muted)} aria-label={muted ? 'Unmute sounds' : 'Mute sounds'} data-testid="mute-toggle">
@@ -281,6 +292,11 @@ export default function GameRoom() {
       <Modal open={chatOpen} onClose={() => setChatOpen(false)} title="Chat" size="sm">
         <ChatPanel bare messages={chat} myId={user?.id} onSend={sendChat} disabled={connection !== 'connected'} />
       </Modal>
+
+      <GameMenu open={menuOpen} onClose={() => setMenuOpen(false)} online={!match.vsComputer} leaving={leaving} onLeave={leave}
+        leaveMessage={match.status !== 'ACTIVE' ? 'The match is over. Go back to the dashboard?'
+          : match.vsComputer ? 'Leaving ends this practice match without a result.'
+            : "You will forfeit the match and lose your place. The other players continue without you. This can't be undone."} />
 
       <ConfirmModal open={leaveOpen} title="Leave this match?" danger busy={leaving} confirmLabel="Forfeit"
         message={match.vsComputer ? 'Leaving ends this practice match without a result.' : "You will forfeit the match and lose your place. This can't be undone."} onConfirm={leave} onClose={() => setLeaveOpen(false)} />
