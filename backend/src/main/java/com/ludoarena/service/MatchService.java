@@ -68,8 +68,8 @@ public class MatchService {
     private static final Logger log = LoggerFactory.getLogger(MatchService.class);
     private static final int ACTION_ID_WINDOW = 100;
     /** "thinking" pauses so a bot turn is visible to the human: base delay + random jitter (ms) */
-    static final long BOT_ROLL_DELAY_MS = 650;
-    static final long BOT_MOVE_DELAY_MS = 500;
+    static final long BOT_ROLL_DELAY_MS = 1100; // lets the previous token finish hopping (6 boxes x 210 ms on screen)
+    static final long BOT_MOVE_DELAY_MS = 950; // the dice tumbles 700 ms on screen before the bot picks a token
     private static final long BOT_JITTER_MS = 300;
     /** finished matches stay in memory this long so late reads never hit a not-yet-written database copy */
     private static final long EVICT_AFTER_MS = 120_000;

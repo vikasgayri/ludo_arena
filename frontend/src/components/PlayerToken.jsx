@@ -1,3 +1,4 @@
+import { useRef } from 'react';
 import { COLOR_DARK, COLOR_HEX } from '../lib/format';
 import { STEP_MS } from '../lib/animation';
 
@@ -10,9 +11,17 @@ export default function PlayerToken({ color, cx, cy, index, movable = false, act
   const fill = gradientId ? `url(#${gradientId})` : COLOR_HEX[color] || '#999';
   const handle = () => { if (movable && onSelect) onSelect(index); };
   const r = radius * scale;
+  // every time the token lands on a new box it does one small hop (a fresh key replays the CSS animation)
+  const pos = `${cx.toFixed(3)},${cy.toFixed(3)}`;
+  const lastPos = useRef(pos);
+  const hops = useRef(0);
+  if (lastPos.current !== pos) {
+    lastPos.current = pos;
+    hops.current += 1;
+  }
   return (
     <g
-      style={{ transform: `translate(${cx}px, ${cy}px)`, transition: `transform ${STEP_MS - 10}ms cubic-bezier(.3,.7,.4,1)` }}
+      style={{ transform: `translate(${cx}px, ${cy}px)`, transition: `transform ${Math.round(STEP_MS * 0.9)}ms cubic-bezier(.45,.05,.35,1)` }}
       role={movable ? 'button' : 'img'}
       tabIndex={movable ? 0 : -1}
       aria-label={label || `${color.toLowerCase()} token ${index + 1}${movable ? ', movable' : ''}`}
@@ -28,6 +37,7 @@ export default function PlayerToken({ color, cx, cy, index, movable = false, act
     >
       {/* larger invisible hit area for fingers on mobile */}
       {movable && <circle r={0.62} fill="transparent" />}
+      <g key={hops.current} className={hops.current ? 'token-hop' : ''} style={{ '--hop-ms': `${STEP_MS}ms` }} data-hops={hops.current}>
       <g className={movable ? 'token-movable' : active ? 'token-turn' : ''} style={{ transformBox: 'fill-box', transformOrigin: 'center' }}>
         <ellipse rx={r * 0.95} ry={r * 0.42} cy={r * 0.72} fill="rgba(0,0,0,.28)" />
         {active && !movable && <circle r={r + 0.24} fill={COLOR_HEX[color] || "#fff"} className="token-turn-ring" />}
@@ -38,6 +48,7 @@ export default function PlayerToken({ color, cx, cy, index, movable = false, act
         <circle r={r * 0.62} fill="none" stroke="rgba(255,255,255,.85)" strokeWidth="0.06" />
         <ellipse rx={r * 0.38} ry={r * 0.22} cx={-r * 0.22} cy={-r * 0.36} fill="rgba(255,255,255,.55)" />
         <text textAnchor="middle" dy="0.11" fontSize={0.3 * scale} fontWeight="800" fill="#fff" stroke={COLOR_DARK[color] || '#333'} strokeWidth="0.02" paintOrder="stroke" style={{ pointerEvents: 'none' }}>{index + 1}</text>
+      </g>
       </g>
       {/* pointer above a movable token (outside the pulsing group so it does not scale) */}
       {movable && (

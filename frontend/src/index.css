@@ -29,7 +29,10 @@
 .skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.07), transparent); animation: shimmer 1.4s infinite; }
 
 @keyframes diceRoll { 0% { transform: rotate(0) scale(1); } 25% { transform: rotate(90deg) scale(1.15); } 50% { transform: rotate(200deg) scale(.95); } 75% { transform: rotate(300deg) scale(1.1); } 100% { transform: rotate(360deg) scale(1); } }
-.dice-rolling { animation: diceRoll .6s ease-in-out infinite; }
+.dice-rolling { animation: diceRoll .7s cubic-bezier(.45,.05,.55,.95) infinite; }
+/* one hop per box while a token walks (lift + tiny squash on landing) */
+@keyframes tokenHop { 0% { transform: translateY(0) scale(1); } 45% { transform: translateY(-.3px) scale(1.1); } 80% { transform: translateY(0) scale(.96, 1.04); } 100% { transform: translateY(0) scale(1); } }
+.token-hop { animation: tokenHop var(--hop-ms, 210ms) ease-out; transform-box: fill-box; transform-origin: 50% 100%; }
 @keyframes tokenPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.1); } }
 .token-movable { animation: tokenPulse .9s ease-in-out infinite; cursor: pointer; }
 @keyframes yardGlow { 0%,100% { opacity: .35; } 50% { opacity: 1; } }
@@ -55,7 +58,7 @@
 .pop-in { animation: popIn .35s cubic-bezier(.3,.7,.4,1) both; }
 @keyframes confettiFall { 0% { transform: translateY(-10vh) rotate(0); opacity: 1; } 100% { transform: translateY(105vh) rotate(720deg); opacity: .9; } }
 .confetti-piece { position: fixed; top: 0; width: 10px; height: 14px; border-radius: 2px; animation: confettiFall linear forwards; pointer-events: none; z-index: 60; }
-@media (prefers-reduced-motion: reduce) { .dice-rolling, .token-movable, .token-turn, .token-turn-ring, .yard-active, .token-halo, .dice-land, .pop-in { animation: none; } .skeleton::after { animation: none; } .confetti-piece { display: none; } }
+@media (prefers-reduced-motion: reduce) { .token-hop, .dice-rolling, .token-movable, .token-turn, .token-turn-ring, .yard-active, .token-halo, .dice-land, .pop-in { animation: none; } .skeleton::after { animation: none; } .confetti-piece { display: none; } }
 
 /* ---- play area: dice that follows the player to move, turn banner, notices, player panels */
 .pod-dock { transition: width .3s ease, margin .3s ease; }

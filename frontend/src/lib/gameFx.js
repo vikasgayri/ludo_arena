@@ -3,7 +3,7 @@ import { STEP_MS } from './animation';
 import { play } from './sound';
 
 /** Minimum time the dice shuffles before it shows the server's value. */
-export const DICE_ROLL_MS = 360;
+export const DICE_ROLL_MS = 700; // medium: long enough to see the dice tumble, short enough not to wait
 
 /** How long the dice still has to shuffle when the result arrives, if this player started rolling at `startedAt`. */
 export function remainingRollMs(startedAt, now = Date.now()) {

@@ -29,7 +29,7 @@ export default function Dice({ value, rolling = false, skin = 'default', size = 
       return undefined;
     }
     wasRolling.current = true;
-    const t = setInterval(() => setFace(1 + Math.floor(Math.random() * 6)), 85);
+    const t = setInterval(() => setFace(1 + Math.floor(Math.random() * 6)), 110);
     return () => clearInterval(t);
   }, [rolling]);
 

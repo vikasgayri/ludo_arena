@@ -86,6 +86,7 @@ describe('instant dice: the shuffle starts on the tap', () => {
     expect(remainingRollMs(now - 100, now)).toBe(DICE_ROLL_MS - 100);
     expect(remainingRollMs(now - 900, now)).toBe(0); // slow network: the value shows the moment it arrives
     expect(remainingRollMs(now - 60_000, now)).toBe(DICE_ROLL_MS); // stale tap time is ignored
-    expect(DICE_ROLL_MS).toBeLessThanOrEqual(400);
+    expect(DICE_ROLL_MS).toBeGreaterThanOrEqual(500); // medium speed: visible tumble
+    expect(DICE_ROLL_MS).toBeLessThanOrEqual(900); // ...but no long wait
   });
 });

@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
  * Presentation-only animation of token movement. The server state is always the truth: this only decides HOW the
  * board walks from what is currently drawn to the latest server positions. Nothing here affects game rules.
  */
-export const STEP_MS = 105; // time per cell while a token walks
+export const STEP_MS = 210; // time per cell: a token hops one box at a time at a calm, readable pace
 const MAX_WALK_STEPS = 7; // a single move is at most 6 cells (+1 when leaving base); larger jumps (reconnect) snap
 
 const key = (color, index) => `${color}-${index}`;
