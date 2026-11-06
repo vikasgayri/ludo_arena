@@ -67,6 +67,15 @@ replica set primary discovered, indexes created, `Tomcat started on port 8080`, 
   computed transform during a 4-cell move showed intermediate positions (smooth walk), ending exactly on the target cell.
   Not tested on a physical phone or against the deployed Vercel/Render stack.
 
+* **Re-run 2026-11-06 after 3-player / offline / instant-response work:** 16 files, **127 tests, all passed**
+  (+12 `localEngine.test.js`: offline rules port - seats/colours for 2/3/4, six to leave base, exact finish, capture +
+  safe stars, triple six, win + ranking, purity, forfeit, save validation; +4 `localGame.test.jsx`: 3-player setup,
+  serverless roll, resume, corrupted save ignored; +3 `roomLobby.test.jsx`: host "Start now", non-host/alone hidden;
+  +3 `GameRoom.test.jsx`: turn-player token highlight, optimistic token move before the server answers, rejected move
+  snaps back; +1 `animation.test.jsx`: dice shuffle time counted from the tap). Build OK (JS 452.7 kB / 137.3 kB gzip).
+  Playwright (iPhone 13, production build): offline 3-player game played ~40 actions with no page errors; active
+  player's four tokens ringed.
+
 ## 5. Not covered by any test today
 `MatchService` (finalization, idempotency, timeouts, reconnect), `StoreService`, `AdminService`, `PaymentService`/`RazorpayProvider`, `LeaderboardService`, `NotificationService`, `GameSocketController`, REST controllers (no MockMvc slices without Mongo), bots (do not exist), OTP reset (does not exist), announcements (do not exist), E2E and mobile browser flows, load/WebSocket stress.
 
@@ -104,3 +113,4 @@ Paste the tail of each output; results are recorded here.
 | 2026-11-05 | Tap focus-ring blob removed, auto-move for a single choice, in-match chat (backend + UI); Vitest 94/94; backend awaiting `mvn clean test` |
 | 2026-11-05 | Voice chat (WebRTC): Vitest 104/104 (+10 VoiceClient unit tests); **real two-browser test** (Chromium, fake mics, simultaneous join): both peers `connected` in ~0.6 s, audio packets flowing both ways, mute disables the track, leave drops the peer, re-join reconnects. Not yet tested on real phones / mobile data; backend VoiceService (8 tests) awaiting `mvn clean test` |
 | 2026-11-05 | Smooth token walking, dice shuffle/land, sounds + mute, classic board, mobile layout, vercel.json, origin patterns, Dockerfile; Vitest 86/86; backend change awaiting `mvn clean test` |
+| 2026-11-06 | 3-player rooms + host "Start now", offline pass & play (`/local`), turn-player token highlight, latency work (in-memory running matches, broadcast before DB write, ordered write-behind, instant dice + optimistic move). Vitest 127/127, engine harness 74/74; Spring tests (MatchServiceLatencyTest, RoomServiceTest, MatchServiceBotTest) **not executed yet** - Maven Central is blocked in the sandbox, awaiting owner's `mvn clean test` |

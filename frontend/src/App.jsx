@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuthStore } from './store/authStore';
 import { AppLayout, GuestOnly, PublicLayout, RequireAdmin, RequireAuth } from './components/Layouts';
 import ToastContainer from './components/Toast';
@@ -17,6 +17,7 @@ import CreateRoom from './pages/CreateRoom';
 import JoinRoom from './pages/JoinRoom';
 import RoomLobby from './pages/RoomLobby';
 import GameRoom from './pages/GameRoom';
+import LocalGame from './pages/LocalGame';
 import Wallet from './pages/Wallet';
 import CoinStore from './pages/CoinStore';
 import Transactions from './pages/Transactions';
@@ -40,12 +41,15 @@ import AdminSettings from './pages/admin/AdminSettings';
 export default function App() {
   const init = useAuthStore((s) => s.init);
   useEffect(() => { init(); }, [init]);
+  // the offline pass & play game never talks to the server, so it never shows server banners
+  const offline = useLocation().pathname === '/local';
 
   return (
     <>
       <Routes>
         <Route element={<PublicLayout />}>
           <Route path="/" element={<Landing />} />
+          <Route path="/local" element={<LocalGame />} />
         </Route>
         <Route path="/login" element={<GuestOnly><Login /></GuestOnly>} />
         <Route path="/register" element={<GuestOnly><Register /></GuestOnly>} />
@@ -86,7 +90,7 @@ export default function App() {
         <Route path="/home" element={<Navigate to="/" replace />} />
         <Route path="*" element={<NotFound />} />
       </Routes>
-      <ServerStatus />
+      {!offline && <ServerStatus />}
       <ToastContainer />
     </>
   );

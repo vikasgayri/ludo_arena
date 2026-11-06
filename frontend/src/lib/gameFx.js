@@ -2,19 +2,36 @@ import { useEffect, useRef, useState } from 'react';
 import { STEP_MS } from './animation';
 import { play } from './sound';
 
-export const DICE_ROLL_MS = 550;
+/** Minimum time the dice shuffles before it shows the server's value. */
+export const DICE_ROLL_MS = 360;
 
-/** True for DICE_ROLL_MS after any player's DICE_ROLLED event arrives (the dice shuffles before showing the value). */
-export function useDiceRoll(lastUpdateEvents) {
+/** How long the dice still has to shuffle when the result arrives, if this player started rolling at `startedAt`. */
+export function remainingRollMs(startedAt, now = Date.now()) {
+  if (!startedAt || now - startedAt > 5000) return DICE_ROLL_MS; // someone else's roll: show a full (short) shuffle
+  return Math.max(0, DICE_ROLL_MS - (now - startedAt));
+}
+
+/**
+ * True while the dice shuffles. A roll this player started (tap time in `localRollRef.current`) shuffles from the tap
+ * itself, so the network round trip is hidden inside the animation instead of being added on top of it.
+ */
+export function useDiceRoll(lastUpdateEvents, localRollRef) {
   const [rolling, setRolling] = useState(false);
   const timer = useRef(null);
   useEffect(() => {
     if (!lastUpdateEvents?.some((e) => e.type === 'DICE_ROLLED')) return undefined;
-    setRolling(true);
+    const startedAt = localRollRef?.current || null;
+    if (localRollRef) localRollRef.current = null;
+    const left = remainingRollMs(startedAt);
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setRolling(false), DICE_ROLL_MS);
+    if (left <= 0) {
+      setRolling(false);
+      return undefined;
+    }
+    setRolling(true);
+    timer.current = setTimeout(() => setRolling(false), left);
     return undefined;
-  }, [lastUpdateEvents]);
+  }, [lastUpdateEvents, localRollRef]);
   useEffect(() => () => clearTimeout(timer.current), []);
   return rolling;
 }

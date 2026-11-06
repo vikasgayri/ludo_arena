@@ -27,6 +27,7 @@ export default function Landing() {
           <div className="mt-6 flex flex-wrap gap-3">
             <Link to="/register" className="btn-primary px-6 py-3">Create free account</Link>
             <Link to="/login" className="btn-secondary px-6 py-3">I already have one</Link>
+            <Link to="/local" className="btn-ghost px-6 py-3" data-testid="landing-local">Play offline with friends</Link>
           </div>
         </div>
         <div className="flex justify-center"><LudoBoard players={DEMO_PLAYERS} /></div>

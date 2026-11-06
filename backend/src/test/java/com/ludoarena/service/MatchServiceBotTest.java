@@ -76,6 +76,7 @@ class MatchServiceBotTest {
         LudoEngineService engine = new LudoEngineService(new DiceService(), rules, new TokenMovementService(rules), new TurnManagerService());
         service = new MatchService(matches, eventRepo, users, mongo, engine, settings, wallets, notifications, leaderboard,
                 messaging, new BotBrain(rules));
+        service.useWriterExecutor(Runnable::run); // database writes run inline in these tests
         when(settings.gameRules()).thenReturn(new GameRules());
         when(settings.get()).thenReturn(new PlatformSettings());
         when(matches.save(any(Match.class))).thenAnswer(i -> {

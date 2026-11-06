@@ -143,6 +143,36 @@ describe('GameRoom', () => {
     expect(token.querySelector('[stroke-dasharray]')).toBeNull();
   });
 
+  it("ringed highlight on all four tokens of the player whose turn it is, and only theirs", () => {
+    setup(match({ currentUserId: 'u2' }));
+    [0, 1, 2, 3].forEach((i) => {
+      expect(screen.getByTestId(`token-YELLOW-${i}`)).toHaveAttribute('data-active', 'true');
+      expect(screen.getByTestId(`token-YELLOW-${i}`).querySelector('.token-turn-ring')).not.toBeNull();
+      expect(screen.getByTestId(`token-RED-${i}`)).toHaveAttribute('data-active', 'false');
+    });
+  });
+
+  it('a tapped token starts moving at once, before the server answers', async () => {
+    const published = [];
+    setup(match({ diceValue: 4, awaitingMove: true, validMoves: [1, 2] }), published);
+    const token = screen.getByTestId('token-RED-2');
+    const before = token.style.transform;
+    await userEvent.click(token);
+    expect(published).toHaveLength(1);
+    expect(token.style.transform).not.toBe(before); // first step drawn without waiting for the round trip
+    expect(screen.getByTestId('token-RED-1')).toHaveAttribute('data-movable', 'false'); // no double move
+  });
+
+  it('a move the server rejects puts the token back', async () => {
+    setup(match({ diceValue: 4, awaitingMove: true, validMoves: [1, 2] }));
+    const token = screen.getByTestId('token-RED-2');
+    const before = token.style.transform;
+    await userEvent.click(token);
+    expect(token.style.transform).not.toBe(before);
+    act(() => { useGameStore.setState({ pending: false, error: 'Token cannot be moved' }); });
+    await waitFor(() => expect(token.style.transform).toBe(before));
+  });
+
   it('online matches have a chat that sends through the socket', async () => {
     const published = [];
     setup(match({ currentUserId: 'u2' }), published);

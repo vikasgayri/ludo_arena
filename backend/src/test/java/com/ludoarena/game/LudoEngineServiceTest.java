@@ -63,10 +63,27 @@ class LudoEngineServiceTest {
     }
 
     @Test
-    void onlyTwoOrFourPlayersAreAllowed() {
+    void twoToFourPlayersAreAllowed() {
         assertThrows(EngineException.class, () -> engine.startGame(List.of(new SeatInfo("a", "A", null)), new GameRules(), 0L));
         assertThrows(EngineException.class, () -> engine.startGame(List.of(
-                new SeatInfo("a", "A", null), new SeatInfo("b", "B", null), new SeatInfo("c", "C", null)), new GameRules(), 0L));
+                new SeatInfo("a", "A", null), new SeatInfo("b", "B", null), new SeatInfo("c", "C", null),
+                new SeatInfo("d", "D", null), new SeatInfo("e", "E", null)), new GameRules(), 0L));
+    }
+
+    @Test
+    void threePlayersTakeRedGreenYellowAndTurnsRotateOverAllThree() {
+        GameState three = engine.startGame(List.of(
+                new SeatInfo("a", "A", null), new SeatInfo("b", "B", null), new SeatInfo("c", "C", null)), new GameRules(), 0L);
+        assertEquals(List.of(Color.RED, Color.GREEN, Color.YELLOW), three.players.stream().map(p -> p.color).toList());
+        // everyone is still in base, so a 1 has no legal move and passes the turn: a -> b -> c -> a
+        dice.with(1, 1, 1);
+        assertEquals("a", three.current().userId);
+        engine.rollDice(three, "a", 1L);
+        assertEquals("b", three.current().userId);
+        engine.rollDice(three, "b", 2L);
+        assertEquals("c", three.current().userId);
+        engine.rollDice(three, "c", 3L);
+        assertEquals("a", three.current().userId);
     }
 
     @Test

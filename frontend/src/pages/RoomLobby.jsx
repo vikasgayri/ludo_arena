@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Check, Copy, LogOut, Wifi, WifiOff } from 'lucide-react';
+import { Check, Copy, LogOut, Play, Wifi, WifiOff } from 'lucide-react';
 import { RoomApi, errorMessage } from '../lib/api';
 import { useAuthStore } from '../store/authStore';
 import { useGameStore } from '../store/gameStore';
@@ -77,6 +77,19 @@ export default function RoomLobby() {
     }
   };
 
+  const isHost = !!room && room.hostId === user?.id;
+  const canStartEarly = isHost && room.status === 'WAITING' && room.players.length >= 2;
+  const startNow = async () => {
+    setBusy(true);
+    try {
+      await RoomApi.start(roomId); // everyone (including us) is sent to the game by the MATCH_STARTED broadcast
+      load();
+    } catch (e) {
+      toast.error(errorMessage(e));
+      setBusy(false);
+    }
+  };
+
   const leave = async () => {
     setBusy(true);
     try {
@@ -125,8 +138,15 @@ export default function RoomLobby() {
           : <div key={`empty-${i}`} className="rounded-xl border border-dashed border-white/10 p-4 text-center text-sm text-slate-500">Waiting for player…</div>)}
       </div>
       <p className="mt-4 text-center text-sm text-slate-400">
-        {room.players.length < room.maxPlayers ? 'The match starts when the table is full and everyone is ready.' : 'Everyone is here — mark yourself ready to start.'}
+        {room.players.length < room.maxPlayers
+          ? (isHost ? `The match starts when the table is full and everyone is ready — or start now with ${room.players.length} player${room.players.length === 1 ? '' : 's'}.` : 'The match starts when the table is full and everyone is ready, or when the host starts it.')
+          : 'Everyone is here — mark yourself ready to start.'}
       </p>
+      {canStartEarly && room.players.length < room.maxPlayers && (
+        <button className="btn-primary mt-4 w-full" onClick={startNow} disabled={busy} data-testid="start-now">
+          <Play className="h-4 w-4" aria-hidden />Start now with {room.players.length} players
+        </button>
+      )}
       <div className="mt-4 flex gap-3">
         <button className="btn-primary flex-1" onClick={toggleReady} disabled={busy || !me}>{me?.ready ? 'Not ready' : "I'm ready"}</button>
         <button className="btn-secondary" onClick={leave} disabled={busy}><LogOut className="h-4 w-4" aria-hidden />Leave</button>

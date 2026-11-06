@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Bot, Globe, KeyRound, Swords } from 'lucide-react';
+import { Bot, Globe, KeyRound, Smartphone, Swords } from 'lucide-react';
 import { RoomApi, errorMessage } from '../lib/api';
 import { toast } from '../store/toastStore';
 import { PageHeader, Spinner } from '../components/ui';
@@ -57,6 +57,14 @@ export default function PlayMode() {
         </div>
       </div>
 
+      <Link to="/local" className="card mt-4 flex items-start gap-4 transition hover:border-brand-400/50" data-testid="mode-local">
+        <div className="rounded-xl bg-white/5 p-3 text-emerald-300"><Smartphone className="h-6 w-6" aria-hidden /></div>
+        <div>
+          <h2 className="font-bold">Offline · pass &amp; play</h2>
+          <p className="text-sm text-slate-400">2–4 friends on one phone. No internet needed, take turns on the same screen.</p>
+        </div>
+      </Link>
+
       <section className="card mt-4 space-y-5" aria-labelledby="vs-computer" data-testid="mode-bot">
         <div className="flex items-start gap-4">
           <div className="rounded-xl bg-white/5 p-3 text-brand-400"><Bot className="h-6 w-6" aria-hidden /></div>
@@ -68,12 +76,12 @@ export default function PlayMode() {
 
         <fieldset>
           <legend className="label">Opponents</legend>
-          <div className="grid grid-cols-2 gap-3">
-            {[2, 4].map((n) => (
+          <div className="grid grid-cols-3 gap-3">
+            {[2, 3, 4].map((n) => (
               <label key={n} className={`cursor-pointer rounded-xl border p-3 text-center transition ${players === n ? 'border-brand-400 bg-brand-500/10' : 'border-white/10 hover:bg-white/5'}`}>
                 <input type="radio" name="bot-players" className="sr-only" checked={players === n} onChange={() => setPlayers(n)} />
                 <span className="block text-2xl font-bold">{n - 1}</span>
-                <span className="text-xs text-slate-400">{n === 2 ? 'computer · 2 players' : 'computers · 4 players'}</span>
+                <span className="text-xs text-slate-400">{n === 2 ? 'computer · 2 players' : `computers · ${n} players`}</span>
               </label>
             ))}
           </div>

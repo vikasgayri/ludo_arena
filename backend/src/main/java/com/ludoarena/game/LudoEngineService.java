@@ -39,11 +39,12 @@ public class LudoEngineService {
 
     public GameState startGame(List<SeatInfo> seats, GameRules gameRules, long nowMs) {
         int n = seats.size();
-        if (n != 2 && n != 4) {
-            throw new EngineException("INVALID_PLAYER_COUNT", "Ludo supports 2 or 4 players");
+        if (n < 2 || n > 4) {
+            throw new EngineException("INVALID_PLAYER_COUNT", "Ludo supports 2 to 4 players");
         }
-        Color[] colors = n == 2
-                ? new Color[] {Color.RED, Color.YELLOW}
+        // 2 players sit opposite each other; 3 players take three consecutive colours
+        Color[] colors = n == 2 ? new Color[] {Color.RED, Color.YELLOW}
+                : n == 3 ? new Color[] {Color.RED, Color.GREEN, Color.YELLOW}
                 : new Color[] {Color.RED, Color.GREEN, Color.YELLOW, Color.BLUE};
         GameState g = new GameState();
         g.rules = gameRules.copy();

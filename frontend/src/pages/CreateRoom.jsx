@@ -44,16 +44,17 @@ export default function CreateRoom() {
         </Field>
         <fieldset>
           <legend className="label">Players</legend>
-          <div className="grid grid-cols-2 gap-3">
-            {[2, 4].map((n) => (
+          <div className="grid grid-cols-3 gap-3">
+            {[2, 3, 4].map((n) => (
               <label key={n} className={`cursor-pointer rounded-xl border p-3 text-center transition ${form.maxPlayers === n ? 'border-brand-400 bg-brand-500/10' : 'border-white/10 hover:bg-white/5'}`}>
                 <input type="radio" name="maxPlayers" className="sr-only" checked={form.maxPlayers === n} onChange={() => setForm({ ...form, maxPlayers: n })} />
                 <span className="block text-2xl font-bold">{n}</span>
-                <span className="text-xs text-slate-400">{n === 2 ? 'Head to head' : 'Full table'}</span>
+                <span className="text-xs text-slate-400">{n === 2 ? 'Head to head' : n === 3 ? 'Three-way' : 'Full table'}</span>
               </label>
             ))}
           </div>
         </fieldset>
+        <p className="-mt-2 text-xs text-slate-400">As host you can also start early with whoever has joined (2 or more players).</p>
         <label className="flex cursor-pointer items-center justify-between rounded-xl border border-white/10 p-3">
           <span>
             <span className="block text-sm font-medium">Private room</span>

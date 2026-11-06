@@ -26,6 +26,26 @@ public class GameState {
     /** when the computer player whose turn it is acts next (persisted, so bot turns survive a restart); null = no bot due */
     public Long botActAtEpochMs;
 
+    /** Deep copy: mutating the copy never affects this state and vice versa. */
+    public GameState copy() {
+        GameState c = new GameState();
+        c.status = status;
+        for (PlayerState p : players) c.players.add(p.copy());
+        c.turnIndex = turnIndex;
+        c.diceValue = diceValue;
+        c.lastDiceValue = lastDiceValue;
+        c.lastDiceUserId = lastDiceUserId;
+        c.awaitingMove = awaitingMove;
+        c.validMoves = new ArrayList<>(validMoves);
+        c.consecutiveSixes = consecutiveSixes;
+        c.winnerUserId = winnerUserId;
+        c.turnDeadlineEpochMs = turnDeadlineEpochMs;
+        c.seq = seq;
+        c.rules = rules == null ? null : rules.copy();
+        c.botActAtEpochMs = botActAtEpochMs;
+        return c;
+    }
+
     public PlayerState current() {
         return players.get(turnIndex);
     }

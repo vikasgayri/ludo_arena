@@ -46,8 +46,8 @@ export default function Lobby() {
           </>
         )}
       />
-      <div className="mb-4 flex gap-2" role="group" aria-label="Filter by mode">
-        {[['', 'All'], ['2', '2 players'], ['4', '4 players']].map(([v, label]) => (
+      <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filter by mode">
+        {[['', 'All'], ['2', '2 players'], ['3', '3 players'], ['4', '4 players']].map(([v, label]) => (
           <button key={v} className={mode === v ? 'btn-primary' : 'btn-secondary'} aria-pressed={mode === v} onClick={() => { setMode(v); setPage(0); }}>{label}</button>
         ))}
       </div>

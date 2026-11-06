@@ -23,7 +23,7 @@ import Modal, { ConfirmModal } from '../components/Modal';
 import LoadingSkeleton from '../components/LoadingSkeleton';
 import { ErrorState } from '../components/ui';
 
-const AUTO_MOVE_DELAY_MS = 400;
+const AUTO_MOVE_DELAY_MS = 120;
 
 function useCountdown(deadline, offsetMs, active) {
   const [now, setNow] = useState(Date.now());
@@ -71,8 +71,21 @@ export default function GameRoom() {
 
   // presentation only: smooth token walking, dice shuffle, sounds (the server state stays authoritative)
   const animationsOn = user?.preferences?.animations !== false && !prefersReducedMotion();
-  const { players: shownPlayers, animating } = useAnimatedPlayers(match?.players || [], { enabled: animationsOn });
-  const diceRolling = useDiceRoll(lastUpdateEvents);
+  // Instant feel: a tapped token starts walking to where the server will put it (target = base ? 0 : steps + dice)
+  // while the move is in flight. The server reply replaces the guess; a rejected move snaps the token back.
+  const [optimistic, setOptimistic] = useState(null);
+  useEffect(() => {
+    if (optimistic && (!pending || match?.seq !== optimistic.seq)) setOptimistic(null);
+  }, [optimistic, pending, match?.seq]);
+  const boardPlayers = useMemo(() => {
+    const list = match?.players || [];
+    if (!optimistic) return list;
+    return list.map((p) => (p.color !== optimistic.color ? p
+      : { ...p, tokens: p.tokens.map((s, i) => (i === optimistic.index ? optimistic.to : s)) }));
+  }, [match?.players, optimistic]);
+  const { players: shownPlayers, animating } = useAnimatedPlayers(boardPlayers, { enabled: animationsOn });
+  const rollStartRef = useRef(null);
+  const diceRolling = useDiceRoll(lastUpdateEvents, rollStartRef);
   useGameSounds(lastUpdateEvents, user?.id);
   const [muted, setMutedState] = useState(isMuted());
   useEffect(() => onMutedChange(setMutedState), []);
@@ -102,7 +115,17 @@ export default function GameRoom() {
   const canRoll = isMyTurn && !match.awaitingMove && !pending;
   // highlight choices only after the dice has landed and tokens stopped walking
   const settled = !diceRolling && !animating;
-  const movable = isMyTurn && match.awaitingMove && settled ? match.validMoves : [];
+  const movable = isMyTurn && match.awaitingMove && settled && !optimistic ? match.validMoves : [];
+  const selectToken = (index) => {
+    if (!me || match.diceValue == null || pending) return;
+    const from = me.tokens[index];
+    const sent = moveToken(index);
+    if (sent) setOptimistic({ color: me.color, index, to: from < 0 ? 0 : from + match.diceValue, seq: match.seq });
+  };
+  const roll = () => {
+    rollStartRef.current = Date.now(); // the dice starts shuffling on the tap, not when the server answers
+    if (!rollDice()) rollStartRef.current = null;
+  };
   // Only one real choice (one legal token, or several legal tokens on the same spot, e.g. all in base)?
   // Then move it automatically. The server still validates the move like any other.
   const onlyChoice = useMemo(() => {
@@ -116,10 +139,11 @@ export default function GameRoom() {
     if (onlyChoice == null || !settled || pending || autoMovedSeq.current === match.seq) return undefined;
     const t = setTimeout(() => {
       autoMovedSeq.current = match.seq;
-      moveToken(onlyChoice);
+      selectToken(onlyChoice);
     }, AUTO_MOVE_DELAY_MS);
     return () => clearTimeout(t);
-  }, [onlyChoice, settled, pending, match?.seq, moveToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onlyChoice, settled, pending, match?.seq]);
   const current = match?.players.find((p) => p.userId === match.currentUserId);
   const botTurn = !!match && match.status === 'ACTIVE' && !!current?.bot;
   const secondsLeft = useCountdown(match?.turnDeadline, serverOffsetMs, !!match && match.status === 'ACTIVE');
@@ -174,7 +198,7 @@ export default function GameRoom() {
           players={shownPlayers}
           movableTokens={movable}
           movableUserId={isMyTurn ? user?.id : null}
-          onTokenSelect={moveToken}
+          onTokenSelect={selectToken}
           skin={me?.boardSkin || 'default'}
         />
         <div className="sticky bottom-3 z-20 mt-4 flex w-full max-w-[640px] items-center justify-between gap-4 rounded-2xl border border-white/10 bg-navy-800/90 p-4 shadow-xl backdrop-blur lg:static">
@@ -194,7 +218,7 @@ export default function GameRoom() {
               value={shownDice}
               rolling={diceRolling || (pending && !match.awaitingMove)}
               skin={diceOwner?.diceSkin || 'default'}
-              onClick={canRoll ? rollDice : undefined}
+              onClick={canRoll ? roll : undefined}
               disabled={!canRoll}
               label={canRoll ? 'Roll dice' : undefined}
               size={76}

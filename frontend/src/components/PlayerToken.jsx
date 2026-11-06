@@ -6,7 +6,7 @@ import { STEP_MS } from '../lib/animation';
  * step-by-step walking); the inner group carries the "movable" pulse so the two transforms never fight.
  * `gradientId` points to the colour's radial gradient defined once by the board.
  */
-export default function PlayerToken({ color, cx, cy, index, movable = false, onSelect, radius = 0.36, label, gradientId, scale = 1 }) {
+export default function PlayerToken({ color, cx, cy, index, movable = false, active = false, onSelect, radius = 0.36, label, gradientId, scale = 1 }) {
   const fill = gradientId ? `url(#${gradientId})` : COLOR_HEX[color] || '#999';
   const handle = () => { if (movable && onSelect) onSelect(index); };
   const r = radius * scale;
@@ -18,6 +18,7 @@ export default function PlayerToken({ color, cx, cy, index, movable = false, onS
       aria-label={label || `${color.toLowerCase()} token ${index + 1}${movable ? ', movable' : ''}`}
       data-testid={`token-${color}-${index}`}
       data-movable={movable ? 'true' : 'false'}
+      data-active={active ? 'true' : 'false'}
       onClick={handle}
       // a tap/click must not give the token keyboard focus: browsers draw their focus ring in board units,
       // which shows up as a huge blue/white blob on the scaled SVG board (keyboard focus via Tab still works)
@@ -27,8 +28,10 @@ export default function PlayerToken({ color, cx, cy, index, movable = false, onS
     >
       {/* larger invisible hit area for fingers on mobile */}
       {movable && <circle r={0.62} fill="transparent" />}
-      <g className={movable ? 'token-movable' : ''} style={{ transformBox: 'fill-box', transformOrigin: 'center' }}>
+      <g className={movable ? 'token-movable' : active ? 'token-turn' : ''} style={{ transformBox: 'fill-box', transformOrigin: 'center' }}>
         <ellipse rx={r * 0.95} ry={r * 0.42} cy={r * 0.72} fill="rgba(0,0,0,.28)" />
+        {active && !movable && <circle r={r + 0.24} fill={COLOR_HEX[color] || "#fff"} className="token-turn-ring" />}
+        {active && !movable && <circle r={r + 0.075} fill="none" stroke="#fff" strokeWidth="0.09" />}
         {movable && <circle r={r + 0.12} fill="#fff" className="token-halo" />}
         <circle r={r} fill={fill} stroke={COLOR_DARK[color] || '#333'} strokeWidth="0.05" />
         <circle r={r * 0.62} fill="none" stroke="rgba(255,255,255,.85)" strokeWidth="0.06" />

@@ -68,8 +68,8 @@ public class RoomService {
     // ---------------------------------------------------------------------- create
 
     public RoomDto create(String userId, CreateRoom req) {
-        if (req.maxPlayers() != 2 && req.maxPlayers() != 4) {
-            throw ApiException.badRequest("INVALID_MODE", "Rooms support 2 or 4 players");
+        if (req.maxPlayers() < 2 || req.maxPlayers() > 4) {
+            throw ApiException.badRequest("INVALID_MODE", "Rooms support 2 to 4 players");
         }
         if (settings.get().maintenanceMode) {
             throw new ApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "MAINTENANCE", "Ludo Arena is under maintenance");
@@ -110,8 +110,8 @@ public class RoomService {
      * {@code players - 1} bots. The usual one-active-room-per-user rule applies.
      */
     public ActiveGameDto createBotGame(String userId, CreateBotGame req) {
-        if (req.players() != 2 && req.players() != 4) {
-            throw ApiException.badRequest("INVALID_MODE", "Play with 1 computer (2 players) or 3 computers (4 players)");
+        if (req.players() < 2 || req.players() > 4) {
+            throw ApiException.badRequest("INVALID_MODE", "Play with 1 to 3 computers (2 to 4 players)");
         }
         if (settings.get().maintenanceMode) {
             throw new ApiException(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE, "MAINTENANCE", "Ludo Arena is under maintenance");
@@ -246,7 +246,42 @@ public class RoomService {
                 .and("players." + (full.maxPlayers - 1)).exists(true));
         Room started = mongo.findAndModify(q, new Update().set("status", RoomStatus.IN_PROGRESS).set("updatedAt", Instant.now()),
                 FindAndModifyOptions.options().returnNew(true), Room.class);
-        if (started == null) return;
+        if (started != null) launch(started);
+    }
+
+    /**
+     * The host starts the game with whoever has joined (at least 2 players), without waiting for the room to fill.
+     * The flip is atomic and pinned to the player count the host saw, so a player joining at the same moment either
+     * makes it in before the start or gets "room full / already started" - never a half-started room.
+     */
+    public RoomDto startNow(String userId, String roomId) {
+        Room r = resolve(roomId);
+        if (!userId.equals(r.hostId)) {
+            throw ApiException.forbidden("NOT_ROOM_HOST", "Only the host can start the game");
+        }
+        if (r.status != RoomStatus.WAITING) {
+            throw ApiException.conflict("ROOM_NOT_WAITING", "This room has already started or is closed");
+        }
+        int n = r.players.size();
+        if (n < 2) {
+            throw ApiException.badRequest("NOT_ENOUGH_PLAYERS", "At least 2 players are needed to start");
+        }
+        Query q = Query.query(Criteria.where("id").is(r.id)
+                .and("status").is(RoomStatus.WAITING)
+                .and("hostId").is(userId)
+                .and("players." + (n - 1)).exists(true)
+                .and("players." + n).exists(false));
+        Update upd = new Update().set("status", RoomStatus.IN_PROGRESS).set("players.$[].ready", true).set("updatedAt", Instant.now());
+        Room started = mongo.findAndModify(q, upd, FindAndModifyOptions.options().returnNew(true), Room.class);
+        if (started == null) {
+            throw ApiException.conflict("ROOM_CHANGED", "The room changed just now - please try again");
+        }
+        launch(started);
+        return RoomDto.from(started, userId);
+    }
+
+    /** Creates the match for a room that this caller has just flipped to IN_PROGRESS and tells everyone in the room. */
+    private void launch(Room started) {
         try {
             Match m = matchService.startMatch(started);
             mongo.updateFirst(Query.query(Criteria.where("id").is(started.id)), new Update().set("matchId", m.id), Room.class);

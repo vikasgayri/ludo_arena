@@ -122,13 +122,15 @@ export const StoreApi = {
 export const RoomApi = {
   list: (params) => get('/rooms', params),
   create: (b) => post('/rooms', b),
-  /** Play with Computer: { players: 2|4, difficulty: 'EASY'|'MEDIUM'|'HARD' } -> { room, matchId } */
+  /** Play with Computer: { players: 2|3|4, difficulty: 'EASY'|'MEDIUM'|'HARD' } -> { room, matchId } */
   createBotGame: (b) => post('/rooms/bot', b),
   get: (id) => get(`/rooms/${id}`),
   active: () => get('/rooms/active'),
   join: (idOrCode) => post(`/rooms/${encodeURIComponent(idOrCode)}/join`),
   leave: (id) => post(`/rooms/${id}/leave`),
   ready: (id, ready) => post(`/rooms/${id}/ready`, { ready }),
+  /** host only: start now with everyone who has joined (2+ players) */
+  start: (id) => post(`/rooms/${id}/start`),
 };
 
 export const MatchApi = {

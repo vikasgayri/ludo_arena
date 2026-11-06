@@ -36,7 +36,7 @@ public class RoomController {
         return ApiResponse.ok(rooms.create(me.id(), req), "Room created");
     }
 
-    /** "Play with Computer": body {"players": 2|4, "difficulty": "EASY"|"MEDIUM"|"HARD"}; the match starts immediately. */
+    /** "Play with Computer": body {"players": 2|3|4, "difficulty": "EASY"|"MEDIUM"|"HARD"}; the match starts immediately. */
     @PostMapping("/bot")
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<ActiveGameDto> createBotGame(@AuthenticationPrincipal AuthUser me, @Valid @RequestBody CreateBotGame req) {
@@ -71,6 +71,12 @@ public class RoomController {
     public ApiResponse<Void> leave(@AuthenticationPrincipal AuthUser me, @PathVariable String id) {
         rooms.leave(me.id(), id);
         return ApiResponse.ok(null, "Left room");
+    }
+
+    /** Host only: start now with everyone who has joined (2 or more players), without waiting for a full room. */
+    @PostMapping("/{id}/start")
+    public ApiResponse<RoomDto> start(@AuthenticationPrincipal AuthUser me, @PathVariable String id) {
+        return ApiResponse.ok(rooms.startNow(me.id(), id), "Game started");
     }
 
     @PostMapping("/{id}/ready")

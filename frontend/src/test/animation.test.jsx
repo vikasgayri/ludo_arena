@@ -77,3 +77,15 @@ describe('Dice rolling state', () => {
     vi.useRealTimers();
   });
 });
+
+describe('instant dice: the shuffle starts on the tap', () => {
+  it('a roll this player started only shuffles for what is left of the minimum time', async () => {
+    const { DICE_ROLL_MS, remainingRollMs } = await import('../lib/gameFx');
+    const now = 10_000;
+    expect(remainingRollMs(null, now)).toBe(DICE_ROLL_MS); // someone else's roll
+    expect(remainingRollMs(now - 100, now)).toBe(DICE_ROLL_MS - 100);
+    expect(remainingRollMs(now - 900, now)).toBe(0); // slow network: the value shows the moment it arrives
+    expect(remainingRollMs(now - 60_000, now)).toBe(DICE_ROLL_MS); // stale tap time is ignored
+    expect(DICE_ROLL_MS).toBeLessThanOrEqual(400);
+  });
+});

@@ -23,7 +23,7 @@ function Star({ cx, cy, r, fill, opacity = 1 }) {
  * highlights the tokens the server says can move (`validMoves`). It never decides what is legal.
  *
  * players: [{ userId, color, tokens:[steps x4] }]
- * activeColor: colour whose turn it is (its yard glows)
+ * activeColor: colour whose turn it is (its yard glows and its four tokens get a ring)
  */
 export default function LudoBoard({ players = [], movableTokens = [], movableUserId = null, onTokenSelect, skin = 'default', activeColor = null }) {
   const theme = BOARD_SKINS[skin] || BOARD_SKINS.default;
@@ -159,6 +159,7 @@ export default function LudoBoard({ players = [], movableTokens = [], movableUse
           scale={t.scale}
           gradientId={grad(t.color)}
           movable={isMovable(t)}
+          active={activeColor != null && t.color === activeColor}
           onSelect={onTokenSelect}
         />
       ))}

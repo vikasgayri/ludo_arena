@@ -34,7 +34,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BiFunction;
@@ -64,9 +68,13 @@ public class MatchService {
     private static final Logger log = LoggerFactory.getLogger(MatchService.class);
     private static final int ACTION_ID_WINDOW = 100;
     /** "thinking" pauses so a bot turn is visible to the human: base delay + random jitter (ms) */
-    static final long BOT_ROLL_DELAY_MS = 900;
-    static final long BOT_MOVE_DELAY_MS = 700;
-    private static final long BOT_JITTER_MS = 400;
+    static final long BOT_ROLL_DELAY_MS = 650;
+    static final long BOT_MOVE_DELAY_MS = 500;
+    private static final long BOT_JITTER_MS = 300;
+    /** finished matches stay in memory this long so late reads never hit a not-yet-written database copy */
+    private static final long EVICT_AFTER_MS = 120_000;
+    /** a failed write (e.g. a network blip to the database) is retried before giving up */
+    private static final int WRITE_ATTEMPTS = 3;
 
     private final MatchRepository matches;
     private final MatchEventRepository eventRepo;
@@ -80,6 +88,21 @@ public class MatchService {
     private final SimpMessagingTemplate messaging;
     private final BotBrain botBrain;
     private final ConcurrentHashMap<String, ReentrantLock> locks = new ConcurrentHashMap<>();
+
+    // ---- latency: running matches live in memory; MongoDB writes happen behind the broadcast, in order per match ----
+    /** authoritative in-memory copy of every running (and recently finished) match on this instance */
+    private final ConcurrentHashMap<String, Match> live = new ConcurrentHashMap<>();
+    /** player cosmetics per match, read once instead of on every move */
+    private final ConcurrentHashMap<String, Map<String, User.Cosmetics>> cosmeticsByMatch = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> evictAt = new ConcurrentHashMap<>();
+    /** tail of each match's write queue: writes of one match run strictly in order, different matches in parallel */
+    private final ConcurrentHashMap<String, CompletableFuture<Void>> writeTails = new ConcurrentHashMap<>();
+    private final AtomicBoolean liveLoaded = new AtomicBoolean(false);
+    private Executor writer = Executors.newFixedThreadPool(2, r -> {
+        Thread t = new Thread(r, "match-writer");
+        t.setDaemon(true);
+        return t;
+    });
 
     public MatchService(MatchRepository matches, MatchEventRepository eventRepo, UserRepository users, MongoTemplate mongo,
                         LudoEngineService engine, PlatformSettingsService settings, WalletService wallets,
@@ -118,6 +141,7 @@ public class MatchService {
         m.startedAt = m.createdAt;
         m = matches.save(m);
         persistEvents(m.id, List.of(started));
+        live.put(m.id, m);
         return m;
     }
 
@@ -155,6 +179,7 @@ public class MatchService {
         scheduleBot(m, now);
         m = matches.save(m);
         persistEvents(m.id, List.of(started));
+        live.put(m.id, m);
         return m;
     }
 
@@ -202,7 +227,8 @@ public class MatchService {
 
     /** Used when an admin suspends a user: removes them from any running match. */
     public void forfeitActiveMatchOf(String userId) {
-        matches.findFirstByPlayerIdsAndStatus(userId, MatchStatus.ACTIVE).ifPresent(m -> forfeit(m.id, userId));
+        String id = activeMatchId(userId);
+        if (id != null) forfeit(id, userId);
     }
 
     // ---------------------------------------------------------- reconnect / presence
@@ -230,7 +256,7 @@ public class MatchService {
                 events.add(engine.connectionEvent(m.game, userId, true, System.currentTimeMillis()));
             }
             if (events.isEmpty()) {
-                m = matches.save(m);
+                persist(m, List.of(), null); // only the rotated reconnect token changed
                 return new StateSnapshot(toState(m), fresh);
             }
             MatchStateDto state = commit(m, events);
@@ -247,10 +273,10 @@ public class MatchService {
     }
 
     private void setConnection(String userId, boolean connected) {
-        Match active = matches.findFirstByPlayerIdsAndStatus(userId, MatchStatus.ACTIVE).orElse(null);
-        if (active == null) return;
-        withLock(active.id, () -> {
-            Match m = load(active.id);
+        String activeId = activeMatchId(userId);
+        if (activeId == null) return;
+        withLock(activeId, () -> {
+            Match m = load(activeId);
             PlayerState p = m.game.player(userId);
             if (m.status != MatchStatus.ACTIVE || p == null || p.forfeited || p.connected == connected) return null;
             commit(m, List.of(engine.connectionEvent(m.game, userId, connected, System.currentTimeMillis())));
@@ -260,13 +286,12 @@ public class MatchService {
 
     // -------------------------------------------------------------------- timeouts
 
-    @Scheduled(fixedDelay = 1000)
+    @Scheduled(fixedDelay = 500)
     public void processTimeouts() {
+        ensureLiveLoaded();
         long now = System.currentTimeMillis();
-        Query q = Query.query(Criteria.where("status").is(MatchStatus.ACTIVE).and("game.turnDeadlineEpochMs").lt(now));
-        q.fields().include("id");
-        List<Match> due = mongo.find(q, Match.class);
-        for (Match d : due) {
+        for (Match d : live.values()) {
+            if (d.status != MatchStatus.ACTIVE || d.game == null || d.game.turnDeadlineEpochMs >= now) continue; // cheap pre-check
             try {
                 withLock(d.id, () -> {
                     Match m = load(d.id);
@@ -279,6 +304,34 @@ public class MatchService {
                 log.error("Timeout processing failed for match {}", d.id, e);
             }
         }
+        evictFinished(now);
+    }
+
+    /** After a restart, running matches are read back from MongoDB once and continue in memory. */
+    void ensureLiveLoaded() {
+        if (!liveLoaded.compareAndSet(false, true)) return;
+        try {
+            for (Match m : mongo.find(Query.query(Criteria.where("status").is(MatchStatus.ACTIVE)), Match.class)) {
+                live.putIfAbsent(m.id, m);
+            }
+        } catch (RuntimeException e) {
+            liveLoaded.set(false); // retry on the next tick
+            log.error("Could not load running matches", e);
+        }
+    }
+
+    private void evictFinished(long now) {
+        evictAt.forEach((id, at) -> {
+            if (at > now) return;
+            CompletableFuture<Void> tail = writeTails.get(id);
+            if (tail != null && !tail.isDone()) return; // still writing: keep serving from memory
+            evictAt.remove(id);
+            live.remove(id);
+            cosmeticsByMatch.remove(id);
+            writeTails.remove(id);
+            ReentrantLock l = locks.get(id);
+            if (l != null && !l.isLocked() && !l.hasQueuedThreads()) locks.remove(id, l);
+        });
     }
 
     // ------------------------------------------------------------------- bot turns
@@ -288,12 +341,13 @@ public class MatchService {
      * always through the normal engine entry points, so bot turns can never overlap with each other or with a human
      * action. The due time is persisted in the game state, so pending bot turns resume after a restart.
      */
-    @Scheduled(fixedDelay = 250)
+    @Scheduled(fixedDelay = 100)
     public void processBotTurns() {
-        Query q = Query.query(Criteria.where("status").is(MatchStatus.ACTIVE).and("vsComputer").is(true)
-                .and("game.botActAtEpochMs").lte(System.currentTimeMillis()));
-        q.fields().include("id");
-        for (Match d : mongo.find(q, Match.class)) {
+        ensureLiveLoaded();
+        long now = System.currentTimeMillis();
+        for (Match d : live.values()) {
+            Long due = d.game == null ? null : d.game.botActAtEpochMs;
+            if (d.status != MatchStatus.ACTIVE || !d.vsComputer || due == null || due > now) continue; // cheap pre-check
             try {
                 withLock(d.id, () -> {
                     playBotTurn(load(d.id), System.currentTimeMillis());
@@ -312,7 +366,7 @@ public class MatchService {
         g.botActAtEpochMs = null; // commit() schedules the next bot step afresh
         PlayerState p = g.current();
         if (!p.bot || p.forfeited || g.isFinished()) {
-            matches.save(m);
+            persist(m, List.of(), null);
             return;
         }
         List<GameEvent> events = g.awaitingMove
@@ -366,17 +420,62 @@ public class MatchService {
             m.winnerId = g.winnerUserId;
             m.finishedAt = Instant.now();
         }
-        m = matches.save(m);
-        persistEvents(m.id, events);
-        countCaptures(events);
-
+        // 1) tell the players immediately (no database round trip on the hot path) ...
         MatchStateDto state = toState(m);
         List<EventDto> dtos = new ArrayList<>();
         for (GameEvent e : events) dtos.add(EventDto.from(e));
         messaging.convertAndSend("/topic/match/" + m.id, new MatchUpdate(m.id, dtos, state));
 
-        if (justFinished) finalizeMatch(m);
+        // 2) ... then persist a snapshot behind it, in order; finalization runs after the final snapshot is stored
+        Match finished = justFinished ? m.copyForPersistence() : null;
+        persist(m, events, finished == null ? null : () -> finalizeMatch(finished));
+        if (justFinished) evictAt.put(m.id, System.currentTimeMillis() + EVICT_AFTER_MS);
         return state;
+    }
+
+    /**
+     * Queues a snapshot of the match (+ its new events and capture counters) for MongoDB. Caller holds the match lock,
+     * so snapshots are taken - and therefore written - in the exact order the state changed.
+     */
+    private void persist(Match m, List<GameEvent> events, Runnable after) {
+        Match snapshot = m.copyForPersistence();
+        List<GameEvent> evs = List.copyOf(events);
+        enqueueWrite(m.id, () -> {
+            matches.save(snapshot);
+            if (!evs.isEmpty()) persistEvents(snapshot.id, evs);
+            countCaptures(evs);
+            if (after != null) after.run();
+        });
+    }
+
+    private void enqueueWrite(String matchId, Runnable task) {
+        CompletableFuture<Void> prev = writeTails.getOrDefault(matchId, CompletableFuture.completedFuture(null));
+        CompletableFuture<Void> next = prev.thenRunAsync(() -> {
+            for (int attempt = 1; ; attempt++) {
+                try {
+                    task.run();
+                    return;
+                } catch (RuntimeException e) {
+                    if (attempt >= WRITE_ATTEMPTS) {
+                        log.error("Persisting match {} failed after {} attempts", matchId, attempt, e);
+                        return;
+                    }
+                    log.warn("Persisting match {} failed (attempt {}), retrying", matchId, attempt);
+                    try {
+                        Thread.sleep(200L * attempt);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    }
+                }
+            }
+        }, writer);
+        writeTails.put(matchId, next);
+    }
+
+    /** Tests: run writes synchronously or capture them. */
+    void useWriterExecutor(Executor executor) {
+        this.writer = executor;
     }
 
     private void persistEvents(String matchId, List<GameEvent> events) {
@@ -412,7 +511,8 @@ public class MatchService {
      *    and are retried until they succeed;
      *  - stats / XP / notification are guarded by a per-player marker claimed atomically, so they are applied at most once;
      *  - the match is flagged {@code finalized} only after every player was processed; until then the recovery sweep retries.
-     * Caller holds the match lock.
+     * Runs on the match's write queue after the final snapshot is stored (or from the recovery sweep); it works on a
+     * private copy of the finished match and only touches the database through atomic, idempotent updates.
      */
     void finalizeMatch(Match m) {
         releaseRoom(m);
@@ -489,9 +589,11 @@ public class MatchService {
         q.fields().include("id");
         for (Match d : mongo.find(q, Match.class)) {
             try {
+                CompletableFuture<Void> pending = writeTails.get(d.id);
+                if (pending != null && !pending.isDone()) continue; // the write queue finalizes it itself
                 withLock(d.id, () -> {
-                    Match m = load(d.id);
-                    if (m.status != MatchStatus.ACTIVE && !m.finalized) finalizeMatch(m);
+                    Match m = matches.findById(d.id).orElse(null);
+                    if (m != null && m.status != MatchStatus.ACTIVE && !m.finalized) finalizeMatch(m);
                     return null;
                 });
             } catch (RuntimeException e) {
@@ -503,12 +605,16 @@ public class MatchService {
     // ----------------------------------------------------------------------- reads
 
     public MatchStateDto stateFor(String matchId, String viewerId, boolean admin) {
-        Match m = load(matchId);
-        if (!admin) requireParticipant(m, viewerId);
-        return toState(m);
+        return withLock(matchId, () -> {
+            Match m = load(matchId);
+            if (!admin) requireParticipant(m, viewerId);
+            return toState(m);
+        });
     }
 
     public boolean isParticipant(String matchId, String userId) {
+        Match cached = live.get(matchId);
+        if (cached != null) return cached.playerIds.contains(userId);
         return mongo.exists(Query.query(Criteria.where("id").is(matchId).and("playerIds").is(userId)), Match.class);
     }
 
@@ -533,13 +639,25 @@ public class MatchService {
     }
 
     public String activeMatchId(String userId) {
+        ensureLiveLoaded();
+        for (Match m : live.values()) {
+            if (m.status == MatchStatus.ACTIVE && m.playerIds.contains(userId)) return m.id;
+        }
         return matches.findFirstByPlayerIdsAndStatus(userId, MatchStatus.ACTIVE).map(m -> m.id).orElse(null);
     }
 
     // --------------------------------------------------------------------- helpers
 
+    /** In-memory match when this instance runs it; otherwise MongoDB (and running matches are then kept in memory). */
     private Match load(String matchId) {
-        return matches.findById(matchId).orElseThrow(() -> ApiException.notFound("MATCH_NOT_FOUND", "Match not found"));
+        Match cached = live.get(matchId);
+        if (cached != null) return cached;
+        Match m = matches.findById(matchId).orElseThrow(() -> ApiException.notFound("MATCH_NOT_FOUND", "Match not found"));
+        if (m.status == MatchStatus.ACTIVE) {
+            Match prev = live.putIfAbsent(m.id, m);
+            if (prev != null) return prev;
+        }
+        return m;
     }
 
     private void requireParticipant(Match m, String userId) {
@@ -549,8 +667,11 @@ public class MatchService {
     }
 
     private MatchStateDto toState(Match m) {
-        Map<String, User.Cosmetics> cosmetics = new HashMap<>();
-        for (User u : users.findAllById(m.playerIds)) cosmetics.put(u.id, u.cosmetics);
+        Map<String, User.Cosmetics> cosmetics = cosmeticsByMatch.computeIfAbsent(m.id, id -> {
+            Map<String, User.Cosmetics> map = new HashMap<>();
+            for (User u : users.findAllById(m.playerIds)) map.put(u.id, u.cosmetics);
+            return map;
+        });
         return MatchStateDto.from(m, cosmetics);
     }
 

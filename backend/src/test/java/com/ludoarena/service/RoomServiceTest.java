@@ -85,10 +85,16 @@ class RoomServiceTest {
     }
 
     @Test
-    void onlyTwoOrFourPlayerRoomsCanBeCreated() {
-        ApiException e = assertThrows(ApiException.class, () -> service.create("u1", new CreateRoom("My room", 3, false)));
-        assertEquals("INVALID_MODE", e.code());
+    void roomsHoldTwoToFourPlayers() {
+        for (int bad : new int[] {1, 5}) {
+            ApiException e = assertThrows(ApiException.class, () -> service.create("u1", new CreateRoom("My room", bad, false)));
+            assertEquals("INVALID_MODE", e.code());
+        }
         verify(mongo, never()).insert(any(Room.class));
+
+        when(userService.require("u1")).thenReturn(user("u1", null));
+        claim(true);
+        assertEquals(3, service.create("u1", new CreateRoom("Three of us", 3, false)).maxPlayers());
     }
 
     @Test
@@ -197,5 +203,63 @@ class RoomServiceTest {
                 .thenReturn(notAll);
         service.setReady("u1", ROOM_ID, true);
         verify(matchService, never()).startMatch(any(Room.class));
+    }
+
+    @Test
+    void theHostCanStartWithWhoeverHasJoined() {
+        Room r = waitingRoom(4, "u1", "u2", "u3");
+        when(mongo.findById(ROOM_ID, Room.class)).thenReturn(r);
+        Room started = waitingRoom(4, "u1", "u2", "u3");
+        started.status = RoomStatus.IN_PROGRESS;
+        com.ludoarena.model.Match m = new com.ludoarena.model.Match();
+        m.id = "match-3";
+        when(mongo.findAndModify(any(Query.class), any(UpdateDefinition.class), any(FindAndModifyOptions.class), eq(Room.class)))
+                .thenReturn(started);
+        when(matchService.startMatch(started)).thenReturn(m);
+
+        RoomDto dto = service.startNow("u1", ROOM_ID);
+
+        verify(matchService).startMatch(started);
+        assertEquals(3, dto.players().size());
+        org.mockito.ArgumentCaptor<Query> q = org.mockito.ArgumentCaptor.forClass(Query.class);
+        verify(mongo).findAndModify(q.capture(), any(UpdateDefinition.class), any(FindAndModifyOptions.class), eq(Room.class));
+        java.util.Set<String> keys = q.getValue().getQueryObject().keySet();
+        assertTrue(keys.contains("players.2") && keys.contains("players.3"), "flip must be pinned to 3 players: " + keys);
+        assertTrue(keys.contains("hostId") && keys.contains("status"), keys.toString());
+    }
+
+    @Test
+    void onlyTheHostCanStartEarly() {
+        when(mongo.findById(ROOM_ID, Room.class)).thenReturn(waitingRoom(4, "u1", "u2"));
+        ApiException e = assertThrows(ApiException.class, () -> service.startNow("u2", ROOM_ID));
+        assertEquals("NOT_ROOM_HOST", e.code());
+        verify(matchService, never()).startMatch(any(Room.class));
+    }
+
+    @Test
+    void aGameNeedsAtLeastTwoPlayers() {
+        when(mongo.findById(ROOM_ID, Room.class)).thenReturn(waitingRoom(4, "u1"));
+        ApiException e = assertThrows(ApiException.class, () -> service.startNow("u1", ROOM_ID));
+        assertEquals("NOT_ENOUGH_PLAYERS", e.code());
+        verify(matchService, never()).startMatch(any(Room.class));
+    }
+
+    @Test
+    void startingARoomThatChangedConcurrentlyIsRejectedSafely() {
+        when(mongo.findById(ROOM_ID, Room.class)).thenReturn(waitingRoom(4, "u1", "u2"));
+        when(mongo.findAndModify(any(Query.class), any(UpdateDefinition.class), any(FindAndModifyOptions.class), eq(Room.class)))
+                .thenReturn(null); // someone joined/left between the read and the flip
+        ApiException e = assertThrows(ApiException.class, () -> service.startNow("u1", ROOM_ID));
+        assertEquals("ROOM_CHANGED", e.code());
+        verify(matchService, never()).startMatch(any(Room.class));
+    }
+
+    @Test
+    void anAlreadyStartedRoomCannotBeStartedAgain() {
+        Room r = waitingRoom(4, "u1", "u2");
+        r.status = RoomStatus.IN_PROGRESS;
+        when(mongo.findById(ROOM_ID, Room.class)).thenReturn(r);
+        ApiException e = assertThrows(ApiException.class, () -> service.startNow("u1", ROOM_ID));
+        assertEquals("ROOM_NOT_WAITING", e.code());
     }
 }

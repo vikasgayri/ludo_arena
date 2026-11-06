@@ -21,6 +21,25 @@ public class PlayerState {
     /** EASY / MEDIUM / HARD for bot seats, null for humans */
     public String botDifficulty;
 
+    /** Deep copy (used to persist a snapshot while the live state keeps changing). */
+    public PlayerState copy() {
+        PlayerState c = new PlayerState();
+        c.userId = userId;
+        c.name = name;
+        c.avatar = avatar;
+        c.color = color;
+        c.seat = seat;
+        c.tokens = tokens.clone();
+        c.connected = connected;
+        c.forfeited = forfeited;
+        c.missedTurns = missedTurns;
+        c.rank = rank;
+        c.reconnectTokenHash = reconnectTokenHash;
+        c.bot = bot;
+        c.botDifficulty = botDifficulty;
+        return c;
+    }
+
     public int finishedTokens() {
         int n = 0;
         for (int t : tokens) {

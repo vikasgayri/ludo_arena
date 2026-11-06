@@ -130,7 +130,7 @@ Integration tests (`ApiIntegrationTest`, `GameFlowWebSocketTest`) are skipped un
 
 ## Scaling notes
 
-- The simple in-memory STOMP broker and the per-match in-process lock are correct for **one backend instance**. To scale horizontally, switch to a broker relay (RabbitMQ/ActiveMQ STOMP or Redis-backed fan-out) and replace the in-process match lock with a distributed lock or sticky routing by `matchId`. The wallet and room logic already rely on atomic Mongo operations, not in-process state.
+- Running matches are held in memory by the instance that runs them (the player's action is broadcast first and the MongoDB copy is written right after, in order, per match); after a restart they are reloaded from MongoDB. Together with the simple in-memory STOMP broker and the per-match in-process lock this is correct for **one backend instance**. To scale horizontally, switch to a broker relay (RabbitMQ/ActiveMQ STOMP or Redis-backed fan-out) and replace the in-process match lock with a distributed lock or sticky routing by `matchId`. The wallet and room logic already rely on atomic Mongo operations, not in-process state.
 - The rate limiter is in-memory per instance; use a shared store (Redis) when running several.
 - Matches persist after every action, so a restarted instance resumes active matches; the timeout scheduler picks up overdue turns on start.
 
